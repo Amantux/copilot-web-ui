@@ -120,6 +120,18 @@ DEFAULT_SESSION_CONFIG: dict = {
     "experimental": False,        # --experimental
     "no_custom_instructions": False,  # --no-custom-instructions
     "mcp_config": "",             # --additional-mcp-config JSON string
+    # Tool visibility (--available-tools / --excluded-tools)
+    "available_tools": [],        # --available-tools (which tools model can see)
+    "excluded_tools": [],         # --excluded-tools (which tools to hide from model)
+    # MCP control
+    "disable_builtin_mcps": False, # --disable-builtin-mcps
+    "disable_mcp_server": [],     # --disable-mcp-server (repeatable)
+    # Reasoning
+    "enable_reasoning_summaries": False, # --enable-reasoning-summaries
+    # Security
+    "secret_env_vars": [],        # --secret-env-vars
+    # Plugins
+    "plugin_dir": [],             # --plugin-dir (repeatable)
 }
 
 AVAILABLE_MODELS = [
@@ -401,6 +413,38 @@ async def _run_copilot_stream(
     if copilot_session_id:
         cmd.append(f"--resume={copilot_session_id}")
 
+    # ── Tool visibility ───────────────────────────────────────────────────────
+    for tool in cfg.get("available_tools") or []:
+        t = tool.strip()
+        if t:
+            cmd += ["--available-tools", t]
+    for tool in cfg.get("excluded_tools") or []:
+        t = tool.strip()
+        if t:
+            cmd += ["--excluded-tools", t]
+
+    # ── MCP control ───────────────────────────────────────────────────────────
+    if cfg.get("disable_builtin_mcps"):
+        cmd.append("--disable-builtin-mcps")
+    for srv in cfg.get("disable_mcp_server") or []:
+        s = srv.strip()
+        if s:
+            cmd += ["--disable-mcp-server", s]
+
+    # ── Reasoning summaries ───────────────────────────────────────────────────
+    if cfg.get("enable_reasoning_summaries"):
+        cmd.append("--enable-reasoning-summaries")
+
+    # ── Secret env vars ───────────────────────────────────────────────────────
+    if cfg.get("secret_env_vars"):
+        cmd += ["--secret-env-vars", ",".join(v.strip() for v in cfg["secret_env_vars"] if v.strip())]
+
+    # ── Plugin directories ────────────────────────────────────────────────────
+    for pd in cfg.get("plugin_dir") or []:
+        p = pd.strip()
+        if p:
+            cmd += ["--plugin-dir", p]
+
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -440,6 +484,17 @@ async def handle_login(request: web.Request) -> web.Response:
 
 async def handle_auth_status(request: web.Request) -> web.Response:
     return web.json_response({"authenticated": _is_authenticated(request)})
+
+
+async def handle_version(_request: web.Request) -> web.Response:
+    proc = await asyncio.create_subprocess_exec(
+        COPILOT_BIN, "--version",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    version_str = stdout.decode().strip()
+    return web.json_response({"version": version_str})
 
 
 async def handle_logout(request: web.Request) -> web.Response:
@@ -716,6 +771,7 @@ def build_app() -> web.Application:
     app.router.add_post("/api/login", handle_login)
     app.router.add_post("/api/logout", handle_logout)
     app.router.add_get("/api/auth/status", handle_auth_status)
+    app.router.add_get("/api/version", handle_version)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_get("/api/history", handle_history)
     app.router.add_get("/api/sessions", handle_sessions)
