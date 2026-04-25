@@ -48,7 +48,7 @@ COOKIE_NAME = "cwui_session"
 SESSION_TTL = int(os.environ.get("COPILOT_WEB_SESSION_TTL", str(7 * 24 * 3600)))
 COOKIE_SECURE = os.environ.get("COPILOT_WEB_COOKIE_SECURE", "auto").lower()
 
-PUBLIC_PATHS = {"/login", "/login.html", "/api/login", "/api/auth/status"}
+PUBLIC_PATHS = {"/login", "/login.html", "/api/login", "/api/auth/status", "/healthz"}
 PUBLIC_PREFIXES = ("/css/", "/js/", "/fonts/", "/img/")
 
 # In-memory chat history per browser session id  { session_id: [{"role": "user"|"assistant", "content": str}] }
