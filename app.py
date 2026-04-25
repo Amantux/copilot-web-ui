@@ -80,8 +80,23 @@ def _is_trusted_ip(request: web.Request) -> bool:
 # In-memory chat history per browser session id  { session_id: [{"role": "user"|"assistant", "content": str}] }
 _chat_histories: dict[str, list[dict]] = {}
 
-# Map browser session_id -> copilot session name (used with --name / --resume)
+# Map browser session_id -> copilot session UUID (for --resume=<uuid>)
 _copilot_sessions: dict[str, str] = {}
+
+# Per-session configuration
+_session_configs: dict[str, dict] = {}
+
+DEFAULT_SESSION_CONFIG: dict = {
+    "workdir": str(WORKSPACE),
+    "mode": "autopilot",          # interactive | plan | autopilot
+    "yolo": True,                 # --yolo = allow-all-tools + allow-all-paths + allow-all-urls
+    "model": "",                  # empty = use copilot default (claude-sonnet-4.6)
+    "github_mcp_all": False,      # --enable-all-github-mcp-tools
+    "reasoning_effort": "",       # low | medium | high | xhigh
+    "max_continues": 0,           # 0 = unlimited (autopilot)
+    "no_ask_user": False,         # --no-ask-user (fully autonomous)
+    "label": "New chat",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -167,11 +182,12 @@ def _parse_copilot_jsonl(line: bytes) -> dict | None:
     Parse one JSONL line from `copilot --output-format json`.
 
     Returns a structured event dict:
-      {"kind": "chunk",     "text": str}          — streaming delta text
-      {"kind": "tool_call", "tool": str}           — tool invocation
-      {"kind": "result",    "session_id": str,
-                            "tokens_out": int,
-                            "premium_reqs": int}   — final result with session info
+      {"kind": "chunk",      "text": str}
+      {"kind": "tool_call",  "tool": str, "args": dict}
+      {"kind": "tool_done",  "tool": str, "success": bool}
+      {"kind": "result",     "session_id": str, "tokens_out": int,
+                             "premium_reqs": int, "files_modified": int,
+                             "lines_added": int, "lines_removed": int}
     Returns None for uninteresting events.
     """
     raw = line.decode("utf-8", errors="replace").strip()
@@ -183,51 +199,106 @@ def _parse_copilot_jsonl(line: bytes) -> dict | None:
         return None
 
     t = obj.get("type", "")
+    data = obj.get("data", {})
 
-    # Streaming text delta — the primary event type
+    # Streaming text delta — primary content event
     if t == "assistant.message_delta":
-        text = obj.get("data", {}).get("deltaContent", "")
+        text = data.get("deltaContent", "")
         return {"kind": "chunk", "text": text} if text else None
 
-    # assistant.message is the *complete* final content — skip it since we
-    # already received all the text via message_delta streaming events.
+    # Tool execution starting — show badge immediately
+    if t == "tool.execution_start":
+        tool = data.get("toolName", data.get("name", "tool"))
+        args = data.get("arguments", {})
+        return {"kind": "tool_call", "tool": str(tool), "args": args}
 
-    # Tool invocations
-    if t in ("tool_call", "assistant.tool_call", "tool.invocation", "tool.result"):
-        data = obj.get("data", {})
-        tool = data.get("name") or data.get("toolName") or data.get("tool") or t
-        return {"kind": "tool_call", "tool": str(tool)}
+    # Tool execution finished
+    if t == "tool.execution_complete":
+        tool = data.get("toolName", data.get("name", "tool"))
+        success = data.get("success", True)
+        return {"kind": "tool_done", "tool": str(tool), "success": success}
 
-    # Final result — carries the persistent session UUID
+    # Final result — carries persistent session UUID and usage stats
     if t == "result":
         usage = obj.get("usage", {})
+        changes = usage.get("codeChanges", {})
         return {
             "kind": "result",
             "session_id": obj.get("sessionId", ""),
             "tokens_out": usage.get("outputTokens", 0),
             "premium_reqs": usage.get("premiumRequests", 0),
+            "files_modified": len(changes.get("filesModified", [])),
+            "lines_added": changes.get("linesAdded", 0),
+            "lines_removed": changes.get("linesRemoved", 0),
         }
 
+    # assistant.message with toolRequests is superseded by tool.execution_start events
+    # assistant.message content is covered by message_delta — skip both to avoid duplication
     return None
 
 
 async def _run_copilot_stream(
     prompt: str,
     copilot_session_id: str | None,
+    config: dict,
 ) -> AsyncIterator[dict]:
     """
     Yield structured event dicts from `copilot -p <prompt> --output-format json`.
 
+    Builds the command from the per-session config (mode, yolo, model, workdir, etc.).
     Uses --resume=<uuid> to continue an existing copilot session.
-    The `result` event contains the session UUID for the next call.
     """
+    cfg = {**DEFAULT_SESSION_CONFIG, **config}
+    workdir = cfg["workdir"]
+
+    # Validate / resolve workdir
+    try:
+        cwd = Path(workdir).resolve()
+        if not cwd.exists():
+            cwd = WORKSPACE
+    except Exception:
+        cwd = WORKSPACE
+
     cmd = [
         COPILOT_BIN,
         "-p", prompt,
         "--output-format", "json",
         "--silent",
-        "--allow-all-tools",
     ]
+
+    # Permissions
+    if cfg["yolo"]:
+        cmd.append("--yolo")
+    else:
+        # Minimum needed for non-interactive: allow tools + the workdir
+        cmd.append("--allow-all-tools")
+        if str(cwd) != str(WORKSPACE):
+            cmd += ["--add-dir", str(cwd)]
+
+    # Agent mode
+    if cfg["mode"] in ("autopilot", "plan"):
+        cmd += ["--mode", cfg["mode"]]
+
+    if cfg["no_ask_user"]:
+        cmd.append("--no-ask-user")
+
+    # Model
+    if cfg["model"]:
+        cmd += ["--model", cfg["model"]]
+
+    # GitHub MCP tools
+    if cfg["github_mcp_all"]:
+        cmd.append("--enable-all-github-mcp-tools")
+
+    # Reasoning effort
+    if cfg["reasoning_effort"]:
+        cmd += ["--reasoning-effort", cfg["reasoning_effort"]]
+
+    # Autopilot continue limit
+    if cfg["max_continues"] and int(cfg["max_continues"]) > 0:
+        cmd += ["--max-autopilot-continues", str(cfg["max_continues"])]
+
+    # Session resume
     if copilot_session_id:
         cmd.append(f"--resume={copilot_session_id}")
 
@@ -235,7 +306,7 @@ async def _run_copilot_stream(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(WORKSPACE),
+        cwd=str(cwd),
     )
 
     assert proc.stdout is not None
@@ -291,8 +362,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
 
     browser_sid = (body.get("session_id") or "").strip() or str(uuid.uuid4())
     copilot_session = _copilot_sessions.get(browser_sid)
+    config = _session_configs.get(browser_sid, {})
 
-    # Store user message in history
     _chat_histories.setdefault(browser_sid, []).append({"role": "user", "content": prompt})
 
     resp = web.StreamResponse(headers={
@@ -302,12 +373,11 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
     })
     await resp.prepare(request)
 
-    # Send session id to client immediately
     await resp.write(f"data: {json.dumps({'type': 'session_id', 'session_id': browser_sid})}\n\n".encode())
 
     full_response = []
     try:
-        async for event in _run_copilot_stream(prompt, copilot_session):
+        async for event in _run_copilot_stream(prompt, copilot_session, config):
             kind = event["kind"]
 
             if kind == "chunk":
@@ -316,17 +386,23 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "tool_call":
-                payload = json.dumps({"type": "tool_call", "tool": event["tool"]})
+                payload = json.dumps({"type": "tool_call", "tool": event["tool"], "args": event.get("args", {})})
+                await resp.write(f"data: {payload}\n\n".encode())
+
+            elif kind == "tool_done":
+                payload = json.dumps({"type": "tool_done", "tool": event["tool"], "success": event["success"]})
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "result":
-                # Store the real copilot session UUID for next resume
                 if event["session_id"]:
                     _copilot_sessions[browser_sid] = event["session_id"]
                 payload = json.dumps({
                     "type": "usage",
                     "tokens_out": event["tokens_out"],
                     "premium_reqs": event["premium_reqs"],
+                    "files_modified": event["files_modified"],
+                    "lines_added": event["lines_added"],
+                    "lines_removed": event["lines_removed"],
                 })
                 await resp.write(f"data: {payload}\n\n".encode())
 
@@ -343,31 +419,85 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
 
 
 async def handle_history(request: web.Request) -> web.Response:
-    """Return chat history for a browser session."""
     sid = request.rel_url.query.get("session_id", "")
     return web.json_response(_chat_histories.get(sid, []))
 
 
 async def handle_sessions(request: web.Request) -> web.Response:
-    """Return all known browser session ids with message counts."""
-    result = [
-        {"session_id": sid, "messages": len(msgs)}
-        for sid, msgs in _chat_histories.items()
-    ]
+    result = []
+    for sid, msgs in _chat_histories.items():
+        cfg = _session_configs.get(sid, {})
+        result.append({
+            "session_id": sid,
+            "messages": len(msgs),
+            "label": cfg.get("label", "Chat"),
+            "mode": cfg.get("mode", DEFAULT_SESSION_CONFIG["mode"]),
+            "workdir": cfg.get("workdir", str(WORKSPACE)),
+            "model": cfg.get("model", ""),
+        })
     return web.json_response(result)
 
 
 async def handle_new_session(request: web.Request) -> web.Response:
     sid = str(uuid.uuid4())
     _chat_histories[sid] = []
-    return web.json_response({"session_id": sid})
+    # Accept config from request body
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    cfg = {**DEFAULT_SESSION_CONFIG}
+    for key in ("workdir", "mode", "yolo", "model", "github_mcp_all",
+                "reasoning_effort", "max_continues", "no_ask_user", "label"):
+        if key in body:
+            cfg[key] = body[key]
+
+    # Validate workdir
+    try:
+        wd = Path(cfg["workdir"]).resolve()
+        cfg["workdir"] = str(wd) if wd.exists() else str(WORKSPACE)
+    except Exception:
+        cfg["workdir"] = str(WORKSPACE)
+
+    _session_configs[sid] = cfg
+    return web.json_response({"session_id": sid, "config": cfg})
+
+
+async def handle_session_config(request: web.Request) -> web.Response:
+    sid = request.match_info.get("session_id", "")
+    if sid not in _chat_histories:
+        raise web.HTTPNotFound(text="Session not found")
+    return web.json_response(_session_configs.get(sid, DEFAULT_SESSION_CONFIG))
 
 
 async def handle_delete_session(request: web.Request) -> web.Response:
     sid = request.match_info.get("session_id", "")
     _chat_histories.pop(sid, None)
     _copilot_sessions.pop(sid, None)
+    _session_configs.pop(sid, None)
     return web.json_response({"ok": True})
+
+
+async def handle_browse(request: web.Request) -> web.Response:
+    """List directories at a given path for the directory picker."""
+    path = request.rel_url.query.get("path", str(WORKSPACE))
+    try:
+        p = Path(path).resolve()
+        if not p.exists() or not p.is_dir():
+            p = WORKSPACE
+        entries = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        dirs = []
+        for e in entries:
+            if e.is_dir() and not e.name.startswith("."):
+                dirs.append({"name": e.name, "path": str(e)})
+        return web.json_response({
+            "path": str(p),
+            "parent": str(p.parent) if p != p.parent else None,
+            "dirs": dirs,
+        })
+    except PermissionError:
+        raise web.HTTPForbidden(text="Permission denied")
 
 
 async def handle_healthz(_request: web.Request) -> web.Response:
@@ -396,7 +526,9 @@ def build_app() -> web.Application:
     app.router.add_get("/api/history", handle_history)
     app.router.add_get("/api/sessions", handle_sessions)
     app.router.add_post("/api/sessions/new", handle_new_session)
+    app.router.add_get("/api/sessions/{session_id}/config", handle_session_config)
     app.router.add_delete("/api/sessions/{session_id}", handle_delete_session)
+    app.router.add_get("/api/browse", handle_browse)
     app.router.add_get("/healthz", handle_healthz)
     app.router.add_get("/", handle_index)
     app.router.add_get("/login", handle_login_page)
