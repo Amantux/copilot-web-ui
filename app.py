@@ -11,6 +11,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -48,8 +49,33 @@ COOKIE_NAME = "cwui_session"
 SESSION_TTL = int(os.environ.get("COPILOT_WEB_SESSION_TTL", str(7 * 24 * 3600)))
 COOKIE_SECURE = os.environ.get("COPILOT_WEB_COOKIE_SECURE", "auto").lower()
 
-PUBLIC_PATHS = {"/login", "/login.html", "/api/login", "/api/auth/status", "/healthz"}
+PUBLIC_PATHS = {"/", "/login", "/login.html", "/api/login", "/api/auth/status", "/healthz"}
 PUBLIC_PREFIXES = ("/css/", "/js/", "/fonts/", "/img/")
+
+# Trusted network CIDRs — requests from these ranges skip password auth entirely.
+# Set COPILOT_TRUSTED_NETWORKS="" to disable. Default: 192.168.0.0/16
+_TRUSTED_NETS_RAW = os.environ.get("COPILOT_TRUSTED_NETWORKS", "192.168.0.0/16")
+TRUSTED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+for _cidr in _TRUSTED_NETS_RAW.split(","):
+    _cidr = _cidr.strip()
+    if _cidr:
+        try:
+            TRUSTED_NETWORKS.append(ipaddress.ip_network(_cidr, strict=False))
+        except ValueError:
+            print(f"  ⚠ Invalid CIDR in COPILOT_TRUSTED_NETWORKS: {_cidr!r}", file=sys.stderr)
+
+
+def _is_trusted_ip(request: web.Request) -> bool:
+    """Return True if the client IP is within a trusted network (no auth needed)."""
+    if not TRUSTED_NETWORKS:
+        return False
+    raw = request.headers.get("X-Forwarded-For") or request.remote or ""
+    client_ip = raw.split(",")[0].strip()
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in TRUSTED_NETWORKS)
 
 # In-memory chat history per browser session id  { session_id: [{"role": "user"|"assistant", "content": str}] }
 _chat_histories: dict[str, list[dict]] = {}
@@ -125,11 +151,11 @@ async def auth_middleware(request: web.Request, handler):
     path = request.path
     if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
         return await handler(request)
-    if not _is_authenticated(request):
-        if path.startswith("/api/"):
-            raise web.HTTPUnauthorized(text="Unauthorized")
-        raise web.HTTPFound("/login.html")
-    return await handler(request)
+    if _is_trusted_ip(request) or _is_authenticated(request):
+        return await handler(request)
+    if path.startswith("/api/"):
+        raise web.HTTPUnauthorized(text="Unauthorized")
+    raise web.HTTPFound("/login.html")
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +363,14 @@ async def handle_healthz(_request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+async def handle_index(_request: web.Request) -> web.FileResponse:
+    return web.FileResponse(HTML_DIR / "index.html")
+
+
+async def handle_login_page(_request: web.Request) -> web.FileResponse:
+    return web.FileResponse(HTML_DIR / "login.html")
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -353,6 +387,8 @@ def build_app() -> web.Application:
     app.router.add_post("/api/sessions/new", handle_new_session)
     app.router.add_delete("/api/sessions/{session_id}", handle_delete_session)
     app.router.add_get("/healthz", handle_healthz)
+    app.router.add_get("/", handle_index)
+    app.router.add_get("/login", handle_login_page)
 
     app.router.add_static("/", HTML_DIR, name="static", show_index=False)
     return app
@@ -367,6 +403,10 @@ def main() -> None:
         print(f"\n  ⚡ Auto-generated password: {PASSWORD}\n", flush=True)
     else:
         print(f"\n  🔒 Password auth enabled\n", flush=True)
+
+    if TRUSTED_NETWORKS:
+        nets = ", ".join(str(n) for n in TRUSTED_NETWORKS)
+        print(f"  🌐 Trusted networks (no auth): {nets}", flush=True)
 
     # Verify copilot binary is accessible
     try:
