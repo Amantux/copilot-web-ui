@@ -1,0 +1,23 @@
+services:
+  copilot-web-ui:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      # Set a strong password — if omitted, one is auto-generated and printed to logs
+      - COPILOT_WEB_PASSWORD=${COPILOT_WEB_PASSWORD:-}
+      # Stable secret so sessions survive restarts — generate with:
+      #   python3 -c "import secrets; print(secrets.token_hex(32))"
+      - COPILOT_WEB_SECRET=${COPILOT_WEB_SECRET:-}
+      # Path to the copilot binary inside the container
+      - COPILOT_BIN=/root/.local/share/gh/copilot/copilot
+    volumes:
+      # Mount host's gh auth config (read-only)
+      - ${HOME}/.config/gh:/root/.config/gh:ro
+      # Mount host's copilot binary (downloaded by gh on first use)
+      - ${HOME}/.local/share/gh:/root/.local/share/gh:ro
+      # Persistent workspace for Copilot sessions
+      - ./workspace:/workspace
+    restart: always
+    # For proxying behind nginx/caddy on the same host
+    # network_mode: host
