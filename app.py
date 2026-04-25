@@ -162,78 +162,74 @@ async def auth_middleware(request: web.Request, handler):
 # Copilot runner
 # ---------------------------------------------------------------------------
 
-def _extract_text_from_jsonl(line: bytes) -> str:
-    """Parse one JSONL line from `copilot --output-format json` and return any text."""
+def _parse_copilot_jsonl(line: bytes) -> dict | None:
+    """
+    Parse one JSONL line from `copilot --output-format json`.
+
+    Returns a structured event dict:
+      {"kind": "chunk",     "text": str}          — streaming delta text
+      {"kind": "tool_call", "tool": str}           — tool invocation
+      {"kind": "result",    "session_id": str,
+                            "tokens_out": int,
+                            "premium_reqs": int}   — final result with session info
+    Returns None for uninteresting events.
+    """
     raw = line.decode("utf-8", errors="replace").strip()
     if not raw:
-        return ""
+        return None
     try:
         obj = json.loads(raw)
     except json.JSONDecodeError:
-        # Not JSON — could be a plain text fallback line
-        return raw if not raw.startswith("{") else ""
+        return None
 
-    # Streaming delta style (most common for --stream on)
-    if obj.get("type") == "content_block_delta":
-        delta = obj.get("delta", {})
-        if delta.get("type") == "text_delta":
-            return delta.get("text", "")
+    t = obj.get("type", "")
 
-    # Full message style
-    if obj.get("type") == "message":
-        content = obj.get("content", [])
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return "".join(
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
+    # Streaming text delta — the primary event type
+    if t == "assistant.message_delta":
+        text = obj.get("data", {}).get("deltaContent", "")
+        return {"kind": "chunk", "text": text} if text else None
 
-    # Simple {"role":"assistant","content":"..."} style
-    if obj.get("role") == "assistant":
-        content = obj.get("content", "")
-        if isinstance(content, str):
-            return content
+    # assistant.message is the *complete* final content — skip it since we
+    # already received all the text via message_delta streaming events.
 
-    # OpenAI delta style
-    choices = obj.get("choices", [])
-    if choices:
-        delta = choices[0].get("delta", {})
-        text = delta.get("content") or delta.get("text")
-        if text:
-            return text
+    # Tool invocations
+    if t in ("tool_call", "assistant.tool_call", "tool.invocation", "tool.result"):
+        data = obj.get("data", {})
+        tool = data.get("name") or data.get("toolName") or data.get("tool") or t
+        return {"kind": "tool_call", "tool": str(tool)}
 
-    return ""
+    # Final result — carries the persistent session UUID
+    if t == "result":
+        usage = obj.get("usage", {})
+        return {
+            "kind": "result",
+            "session_id": obj.get("sessionId", ""),
+            "tokens_out": usage.get("outputTokens", 0),
+            "premium_reqs": usage.get("premiumRequests", 0),
+        }
+
+    return None
 
 
 async def _run_copilot_stream(
     prompt: str,
-    copilot_session_name: str | None,
-) -> AsyncIterator[str]:
+    copilot_session_id: str | None,
+) -> AsyncIterator[dict]:
     """
-    Yield text chunks from `copilot -p <prompt> --output-format json`.
+    Yield structured event dicts from `copilot -p <prompt> --output-format json`.
 
-    If copilot_session_name is given, resumes that named session via --resume.
-    A new session name is yielded as the FIRST item prefixed with `__session__:`.
+    Uses --resume=<uuid> to continue an existing copilot session.
+    The `result` event contains the session UUID for the next call.
     """
-    session_name = copilot_session_name or f"cwui-{uuid.uuid4().hex[:8]}"
-
     cmd = [
         COPILOT_BIN,
         "-p", prompt,
         "--output-format", "json",
-        "--stream", "on",
         "--silent",
         "--allow-all-tools",
-        "--name", session_name,
     ]
-    if copilot_session_name:
-        cmd += ["--resume", copilot_session_name]
-
-    # Yield the session name so the caller can store it
-    yield f"__session__:{session_name}"
+    if copilot_session_id:
+        cmd.append(f"--resume={copilot_session_id}")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -245,9 +241,9 @@ async def _run_copilot_stream(
     assert proc.stdout is not None
     try:
         async for line in proc.stdout:
-            text = _extract_text_from_jsonl(line)
-            if text:
-                yield text
+            event = _parse_copilot_jsonl(line)
+            if event:
+                yield event
     finally:
         try:
             proc.kill()
@@ -311,13 +307,28 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
 
     full_response = []
     try:
-        async for chunk in _run_copilot_stream(prompt, copilot_session):
-            if chunk.startswith("__session__:"):
-                _copilot_sessions[browser_sid] = chunk.split(":", 1)[1]
-                continue
-            full_response.append(chunk)
-            payload = json.dumps({"type": "chunk", "text": chunk})
-            await resp.write(f"data: {payload}\n\n".encode())
+        async for event in _run_copilot_stream(prompt, copilot_session):
+            kind = event["kind"]
+
+            if kind == "chunk":
+                full_response.append(event["text"])
+                payload = json.dumps({"type": "chunk", "text": event["text"]})
+                await resp.write(f"data: {payload}\n\n".encode())
+
+            elif kind == "tool_call":
+                payload = json.dumps({"type": "tool_call", "tool": event["tool"]})
+                await resp.write(f"data: {payload}\n\n".encode())
+
+            elif kind == "result":
+                # Store the real copilot session UUID for next resume
+                if event["session_id"]:
+                    _copilot_sessions[browser_sid] = event["session_id"]
+                payload = json.dumps({
+                    "type": "usage",
+                    "tokens_out": event["tokens_out"],
+                    "premium_reqs": event["premium_reqs"],
+                })
+                await resp.write(f"data: {payload}\n\n".encode())
 
         _chat_histories[browser_sid].append({"role": "assistant", "content": "".join(full_response)})
         await resp.write(f"data: {json.dumps({'type': 'done'})}\n\n".encode())
