@@ -87,16 +87,59 @@ _copilot_sessions: dict[str, str] = {}
 _session_configs: dict[str, dict] = {}
 
 DEFAULT_SESSION_CONFIG: dict = {
-    "workdir": str(WORKSPACE),
-    "mode": "autopilot",          # interactive | plan | autopilot
-    "yolo": True,                 # --yolo = allow-all-tools + allow-all-paths + allow-all-urls
-    "model": "",                  # empty = use copilot default (claude-sonnet-4.6)
-    "github_mcp_all": False,      # --enable-all-github-mcp-tools
-    "reasoning_effort": "",       # low | medium | high | xhigh
-    "max_continues": 0,           # 0 = unlimited (autopilot)
-    "no_ask_user": False,         # --no-ask-user (fully autonomous)
+    # Identity
     "label": "New chat",
+    "session_name": "",           # --name (copilot session name)
+    # Working directory
+    "workdir": str(WORKSPACE),
+    "add_dirs": [],               # --add-dir (extra allowed dirs)
+    # Agent mode
+    "mode": "autopilot",          # interactive | plan | autopilot
+    # Permissions — granular (yolo sets all three)
+    "yolo": True,                 # --yolo / --allow-all
+    "allow_all_tools": False,     # --allow-all-tools (separate from yolo)
+    "allow_all_paths": False,     # --allow-all-paths
+    "allow_all_urls": False,      # --allow-all-urls
+    "disallow_temp_dir": False,   # --disallow-temp-dir
+    "allow_tool": [],             # --allow-tool patterns e.g. ["shell(git:*)", "write"]
+    "deny_tool": [],              # --deny-tool patterns
+    "allow_url": [],              # --allow-url domains
+    "deny_url": [],               # --deny-url domains
+    # Model & reasoning
+    "model": "",                  # empty = copilot default
+    "reasoning_effort": "",       # low | medium | high | xhigh
+    # GitHub MCP
+    "github_mcp_all": False,      # --enable-all-github-mcp-tools
+    "add_github_mcp_tools": [],   # --add-github-mcp-tool patterns
+    "add_github_mcp_toolsets": [],# --add-github-mcp-toolset names
+    # Autopilot
+    "max_continues": 0,           # 0 = unlimited
+    "no_ask_user": False,         # --no-ask-user
+    # Extra
+    "agent": "",                  # --agent custom agent name
+    "experimental": False,        # --experimental
+    "no_custom_instructions": False,  # --no-custom-instructions
+    "mcp_config": "",             # --additional-mcp-config JSON string
 }
+
+AVAILABLE_MODELS = [
+    "claude-sonnet-4.6",
+    "claude-sonnet-4.5",
+    "claude-haiku-4.5",
+    "claude-opus-4.7",
+    "claude-opus-4.6",
+    "claude-opus-4.5",
+    "claude-sonnet-4",
+    "gpt-5.4",
+    "gpt-5.5",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+    "gpt-5.2",
+    "gpt-5.1",
+    "gpt-5.4-mini",
+    "gpt-5-mini",
+    "gpt-4.1",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -266,39 +309,95 @@ async def _run_copilot_stream(
         "--silent",
     ]
 
-    # Permissions
-    if cfg["yolo"]:
+    # ── Permissions ──────────────────────────────────────────────────────────
+    if cfg.get("yolo"):
         cmd.append("--yolo")
     else:
-        # Minimum needed for non-interactive: allow tools + the workdir
-        cmd.append("--allow-all-tools")
+        # Granular permission flags
+        if cfg.get("allow_all_tools"):
+            cmd.append("--allow-all-tools")
+        else:
+            # Non-interactive always needs at least allow-all-tools
+            cmd.append("--allow-all-tools")
+
+        if cfg.get("allow_all_paths"):
+            cmd.append("--allow-all-paths")
+        if cfg.get("allow_all_urls"):
+            cmd.append("--allow-all-urls")
+        if cfg.get("disallow_temp_dir"):
+            cmd.append("--disallow-temp-dir")
+
+        # Additional directories
         if str(cwd) != str(WORKSPACE):
             cmd += ["--add-dir", str(cwd)]
+        for extra_dir in cfg.get("add_dirs") or []:
+            d = extra_dir.strip()
+            if d and d != str(cwd):
+                cmd += ["--add-dir", d]
 
-    # Agent mode
-    if cfg["mode"] in ("autopilot", "plan"):
+        # Tool allow/deny patterns (e.g. "shell(git:*)", "write")
+        for pat in cfg.get("allow_tool") or []:
+            pat = pat.strip()
+            if pat:
+                cmd += ["--allow-tool", pat]
+        for pat in cfg.get("deny_tool") or []:
+            pat = pat.strip()
+            if pat:
+                cmd += ["--deny-tool", pat]
+
+        # URL allow/deny lists
+        for url in cfg.get("allow_url") or []:
+            url = url.strip()
+            if url:
+                cmd += ["--allow-url", url]
+        for url in cfg.get("deny_url") or []:
+            url = url.strip()
+            if url:
+                cmd += ["--deny-url", url]
+
+    # ── Agent mode ───────────────────────────────────────────────────────────
+    if cfg.get("mode") in ("autopilot", "plan", "interactive"):
         cmd += ["--mode", cfg["mode"]]
 
-    if cfg["no_ask_user"]:
+    if cfg.get("no_ask_user"):
         cmd.append("--no-ask-user")
 
-    # Model
-    if cfg["model"]:
+    # ── Model & reasoning ────────────────────────────────────────────────────
+    if cfg.get("model"):
         cmd += ["--model", cfg["model"]]
-
-    # GitHub MCP tools
-    if cfg["github_mcp_all"]:
-        cmd.append("--enable-all-github-mcp-tools")
-
-    # Reasoning effort
-    if cfg["reasoning_effort"]:
+    if cfg.get("reasoning_effort"):
         cmd += ["--reasoning-effort", cfg["reasoning_effort"]]
 
-    # Autopilot continue limit
-    if cfg["max_continues"] and int(cfg["max_continues"]) > 0:
+    # ── GitHub MCP tools ─────────────────────────────────────────────────────
+    if cfg.get("github_mcp_all"):
+        cmd.append("--enable-all-github-mcp-tools")
+    else:
+        for tool in cfg.get("add_github_mcp_tools") or []:
+            t = tool.strip()
+            if t:
+                cmd += ["--add-github-mcp-tool", t]
+        for toolset in cfg.get("add_github_mcp_toolsets") or []:
+            ts = toolset.strip()
+            if ts:
+                cmd += ["--add-github-mcp-toolset", ts]
+
+    # ── Autopilot ────────────────────────────────────────────────────────────
+    if cfg.get("max_continues") and int(cfg["max_continues"]) > 0:
         cmd += ["--max-autopilot-continues", str(cfg["max_continues"])]
 
-    # Session resume
+    # ── Custom agent ─────────────────────────────────────────────────────────
+    if cfg.get("agent"):
+        cmd += ["--agent", cfg["agent"]]
+
+    # ── Misc ─────────────────────────────────────────────────────────────────
+    if cfg.get("experimental"):
+        cmd.append("--experimental")
+    if cfg.get("no_custom_instructions"):
+        cmd.append("--no-custom-instructions")
+    if cfg.get("mcp_config", "").strip():
+        cmd += ["--additional-mcp-config", cfg["mcp_config"].strip()]
+
+    # ── Session resume ───────────────────────────────────────────────────────
     if copilot_session_id:
         cmd.append(f"--resume={copilot_session_id}")
 
@@ -441,15 +540,13 @@ async def handle_sessions(request: web.Request) -> web.Response:
 async def handle_new_session(request: web.Request) -> web.Response:
     sid = str(uuid.uuid4())
     _chat_histories[sid] = []
-    # Accept config from request body
     try:
         body = await request.json()
     except Exception:
         body = {}
 
     cfg = {**DEFAULT_SESSION_CONFIG}
-    for key in ("workdir", "mode", "yolo", "model", "github_mcp_all",
-                "reasoning_effort", "max_continues", "no_ask_user", "label"):
+    for key in DEFAULT_SESSION_CONFIG:
         if key in body:
             cfg[key] = body[key]
 
@@ -468,7 +565,104 @@ async def handle_session_config(request: web.Request) -> web.Response:
     sid = request.match_info.get("session_id", "")
     if sid not in _chat_histories:
         raise web.HTTPNotFound(text="Session not found")
-    return web.json_response(_session_configs.get(sid, DEFAULT_SESSION_CONFIG))
+    return web.json_response(_session_configs.get(sid, {**DEFAULT_SESSION_CONFIG}))
+
+
+async def handle_update_session_config(request: web.Request) -> web.Response:
+    """PATCH /api/sessions/:id/config — update config fields mid-session."""
+    sid = request.match_info.get("session_id", "")
+    if sid not in _chat_histories:
+        raise web.HTTPNotFound(text="Session not found")
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid JSON")
+
+    cfg = _session_configs.get(sid, {**DEFAULT_SESSION_CONFIG})
+    allowed = set(DEFAULT_SESSION_CONFIG.keys())
+    for key, val in body.items():
+        if key in allowed:
+            cfg[key] = val
+    _session_configs[sid] = cfg
+    return web.json_response(cfg)
+
+
+async def handle_rename_session(request: web.Request) -> web.Response:
+    """PUT /api/sessions/:id/rename — rename a session."""
+    sid = request.match_info.get("session_id", "")
+    if sid not in _chat_histories:
+        raise web.HTTPNotFound(text="Session not found")
+    try:
+        body = await request.json()
+        name = str(body.get("name", "")).strip()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid JSON")
+    if not name:
+        raise web.HTTPBadRequest(text="Name required")
+    cfg = _session_configs.setdefault(sid, {**DEFAULT_SESSION_CONFIG})
+    cfg["label"] = name
+    return web.json_response({"ok": True, "label": name})
+
+
+async def handle_undo_session(request: web.Request) -> web.Response:
+    """DELETE /api/sessions/:id/last — remove the last user+assistant exchange."""
+    sid = request.match_info.get("session_id", "")
+    if sid not in _chat_histories:
+        raise web.HTTPNotFound(text="Session not found")
+    msgs = _chat_histories[sid]
+    removed = 0
+    # Remove last assistant message
+    if msgs and msgs[-1]["role"] == "assistant":
+        msgs.pop()
+        removed += 1
+    # Remove last user message
+    if msgs and msgs[-1]["role"] == "user":
+        msgs.pop()
+        removed += 1
+    # If we undo, also clear the copilot session so next message starts fresh from history
+    if removed > 0:
+        _copilot_sessions.pop(sid, None)
+    return web.json_response({"ok": True, "removed": removed, "remaining": len(msgs)})
+
+
+async def handle_export_session(request: web.Request) -> web.Response:
+    """GET /api/sessions/:id/export — export conversation as markdown."""
+    sid = request.match_info.get("session_id", "")
+    if sid not in _chat_histories:
+        raise web.HTTPNotFound(text="Session not found")
+    cfg = _session_configs.get(sid, {})
+    msgs = _chat_histories[sid]
+    label = cfg.get("label", "Copilot Session")
+    lines = [
+        f"# {label}",
+        "",
+        f"> Session ID: `{sid}`  ",
+        f"> Mode: `{cfg.get('mode','autopilot')}`  ",
+        f"> Model: `{cfg.get('model','claude-sonnet-4.6')}`  ",
+        f"> Working directory: `{cfg.get('workdir','')}`",
+        "",
+        "---",
+        "",
+    ]
+    for msg in msgs:
+        role = "**You**" if msg["role"] == "user" else "**GitHub Copilot**"
+        lines.append(f"### {role}\n")
+        lines.append(msg["content"])
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+    md = "\n".join(lines)
+    filename = f"copilot-session-{sid[:8]}.md"
+    return web.Response(
+        body=md.encode("utf-8"),
+        content_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def handle_models(_request: web.Request) -> web.Response:
+    """GET /api/models — list available models."""
+    return web.json_response(AVAILABLE_MODELS)
 
 
 async def handle_delete_session(request: web.Request) -> web.Response:
@@ -527,7 +721,12 @@ def build_app() -> web.Application:
     app.router.add_get("/api/sessions", handle_sessions)
     app.router.add_post("/api/sessions/new", handle_new_session)
     app.router.add_get("/api/sessions/{session_id}/config", handle_session_config)
+    app.router.add_patch("/api/sessions/{session_id}/config", handle_update_session_config)
+    app.router.add_put("/api/sessions/{session_id}/rename", handle_rename_session)
+    app.router.add_delete("/api/sessions/{session_id}/last", handle_undo_session)
+    app.router.add_get("/api/sessions/{session_id}/export", handle_export_session)
     app.router.add_delete("/api/sessions/{session_id}", handle_delete_session)
+    app.router.add_get("/api/models", handle_models)
     app.router.add_get("/api/browse", handle_browse)
     app.router.add_get("/healthz", handle_healthz)
     app.router.add_get("/", handle_index)
