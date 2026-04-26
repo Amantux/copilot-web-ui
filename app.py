@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import AsyncIterator
 
+import aiohttp
 from aiohttp import web
 
 
@@ -90,6 +91,45 @@ _session_configs: dict[str, dict] = {}
 # for interactive question/answer flows.
 _active_processes: dict[str, asyncio.subprocess.Process] = {}
 
+# ── Home Assistant config (can be overridden via /api/ha/config) ─────────────
+_HA_CONFIG_FILE = HERE / "ha_config.json"
+
+def _load_ha_config() -> dict:
+    if _HA_CONFIG_FILE.exists():
+        try:
+            return json.loads(_HA_CONFIG_FILE.read_text())
+        except Exception:
+            pass
+    return {
+        "url": os.environ.get("HA_URL", "").rstrip("/"),
+        "token": os.environ.get("HA_TOKEN", ""),
+        "notify_service": os.environ.get("HA_NOTIFY_SERVICE", "notify"),
+        "server_base": os.environ.get("SERVER_BASE", ""),
+    }
+
+_ha_config: dict = _load_ha_config()
+_pending_questions: dict[str, dict] = {}  # token -> {session_id, question, choices}
+
+# Per-model usage stats (ephemeral, cleared on restart)
+_model_stats: dict[str, dict] = {}  # model_name -> {requests, premium_reqs, tokens_out}
+
+# SSH server profiles
+_SSH_PROFILES_FILE = HERE / "ssh_profiles.json"
+
+def _load_ssh_profiles() -> dict:
+    if _SSH_PROFILES_FILE.exists():
+        try:
+            return json.loads(_SSH_PROFILES_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+_ssh_profiles: dict[str, dict] = _load_ssh_profiles()
+
+def _save_ssh_profiles() -> None:
+    _SSH_PROFILES_FILE.write_text(json.dumps(_ssh_profiles, indent=2))
+
+
 DEFAULT_SESSION_CONFIG: dict = {
     # Identity
     "label": "New chat",
@@ -136,6 +176,9 @@ DEFAULT_SESSION_CONFIG: dict = {
     "secret_env_vars": [],        # --secret-env-vars
     # Plugins
     "plugin_dir": [],             # --plugin-dir (repeatable)
+    # Organization
+    "group": "",         # session group/folder name
+    "pinned": False,     # pinned to top of sidebar
 }
 
 AVAILABLE_MODELS = [
@@ -225,11 +268,53 @@ async def auth_middleware(request: web.Request, handler):
     path = request.path
     if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
         return await handler(request)
+    if path.startswith("/api/ha/answer/"):
+        return await handler(request)
     if _is_trusted_ip(request) or _is_authenticated(request):
         return await handler(request)
     if path.startswith("/api/"):
         raise web.HTTPUnauthorized(text="Unauthorized")
     raise web.HTTPFound("/login.html")
+
+
+async def _notify_ha(title: str, message: str, question_token: str | None = None) -> None:
+    """Post a notification to Home Assistant, optionally with a question answer URL."""
+    cfg = _ha_config
+    ha_url = cfg.get("url", "").rstrip("/")
+    ha_token = cfg.get("token", "")
+    if not ha_url or not ha_token:
+        return
+    headers = {"Authorization": f"Bearer {ha_token}", "Content-Type": "application/json"}
+    notify_service = cfg.get("notify_service") or "notify"
+    answer_url = ""
+    if question_token:
+        base = cfg.get("server_base", "").rstrip("/")
+        answer_url = f"{base}/api/ha/answer/{question_token}" if base else ""
+
+    notif_message = message
+    if answer_url:
+        notif_message += f"\n\nAnswer URL: {answer_url}"
+
+    notify_data: dict = {"title": title, "message": notif_message}
+    if answer_url:
+        notify_data["data"] = {"url": answer_url, "push": {"category": "copilot_question"}}
+
+    try:
+        async with aiohttp.ClientSession() as sess:
+            await sess.post(
+                f"{ha_url}/api/services/notify/{notify_service}",
+                json=notify_data, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=8),
+            )
+        # Also create persistent notification for dashboard
+        async with aiohttp.ClientSession() as sess:
+            await sess.post(
+                f"{ha_url}/api/services/persistent_notification/create",
+                json={"title": title, "message": notif_message, "notification_id": "copilot_webui"},
+                headers=headers, timeout=aiohttp.ClientTimeout(total=8),
+            )
+    except Exception as e:
+        print(f"HA notify error: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -602,16 +687,34 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "question":
+                token = str(uuid.uuid4())
+                _pending_questions[token] = {
+                    "session_id": browser_sid,
+                    "question": event["question"],
+                    "choices": event.get("choices", []),
+                }
+                asyncio.ensure_future(_notify_ha(
+                    title=f"Copilot Question — {config.get('label', 'Chat')}",
+                    message=event["question"],
+                    question_token=token,
+                ))
                 payload = json.dumps({
                     "type": "question",
                     "question": event["question"],
                     "choices": event.get("choices", []),
+                    "token": token,
                 })
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "result":
                 if event["session_id"]:
                     _copilot_sessions[browser_sid] = event["session_id"]
+                # Track per-model stats
+                model_key = config.get("model") or "claude-sonnet-4.6"
+                ms = _model_stats.setdefault(model_key, {"requests": 0, "premium_reqs": 0, "tokens_out": 0})
+                ms["requests"] += 1
+                ms["premium_reqs"] += event.get("premium_reqs", 0)
+                ms["tokens_out"] += event.get("tokens_out", 0)
                 payload = json.dumps({
                     "type": "usage",
                     "tokens_out": event["tokens_out"],
@@ -623,6 +726,12 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
                 await resp.write(f"data: {payload}\n\n".encode())
 
         _chat_histories[browser_sid].append({"role": "assistant", "content": "".join(full_response)})
+        label = config.get("label", "Copilot")
+        if full_response:
+            asyncio.ensure_future(_notify_ha(
+                title=f"Copilot — {label}",
+                message="".join(full_response)[:200],
+            ))
         await resp.write(f"data: {json.dumps({'type': 'done'})}\n\n".encode())
 
     except Exception as exc:
@@ -650,7 +759,11 @@ async def handle_sessions(request: web.Request) -> web.Response:
             "mode": cfg.get("mode", DEFAULT_SESSION_CONFIG["mode"]),
             "workdir": cfg.get("workdir", str(WORKSPACE)),
             "model": cfg.get("model", ""),
+            "group": cfg.get("group", ""),
+            "pinned": cfg.get("pinned", False),
         })
+    # Pinned sessions first, then by insertion order
+    result.sort(key=lambda x: (not x["pinned"], 0))
     return web.json_response(result)
 
 
@@ -819,6 +932,284 @@ async def handle_answer(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
+async def handle_ha_config(request: web.Request) -> web.Response:
+    """GET /api/ha/config — return current HA config (token masked). POST — update config."""
+    global _ha_config
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Invalid JSON")
+        for k in ("url", "token", "notify_service", "server_base"):
+            if k in body:
+                _ha_config[k] = body[k]
+        _HA_CONFIG_FILE.write_text(json.dumps(_ha_config, indent=2))
+        return web.json_response({"ok": True})
+    # GET — mask token
+    safe = dict(_ha_config)
+    if safe.get("token"):
+        safe["token"] = safe["token"][:4] + "****"
+    return web.json_response(safe)
+
+
+async def handle_ha_test(request: web.Request) -> web.Response:
+    """POST /api/ha/test — ping Home Assistant to verify connectivity."""
+    cfg = _ha_config
+    ha_url = cfg.get("url", "").rstrip("/")
+    ha_token = cfg.get("token", "")
+    if not ha_url or not ha_token:
+        return web.json_response({"ok": False, "error": "HA URL or token not configured"})
+    try:
+        async with aiohttp.ClientSession() as sess:
+            r = await sess.get(
+                f"{ha_url}/api/",
+                headers={"Authorization": f"Bearer {ha_token}"},
+                timeout=aiohttp.ClientTimeout(total=8),
+            )
+            data = await r.json()
+            return web.json_response({"ok": r.status == 200, "message": data.get("message", ""), "version": data.get("version", "")})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)})
+
+
+async def handle_ha_answer(request: web.Request) -> web.Response:
+    """GET /api/ha/answer/{token}?answer=text — receive answer from HA automation or browser."""
+    token = request.match_info.get("token", "")
+    answer = request.rel_url.query.get("answer", "").strip()
+    pending = _pending_questions.get(token)
+
+    if not answer:
+        # Show HTML form with question text and choices
+        question_text = pending["question"] if pending else "Question not found or already answered."
+        choices = pending.get("choices", []) if pending else []
+        choice_btns = "".join(
+            f'<a href="?answer={c}" style="display:inline-block;margin:4px;padding:8px 16px;background:#6e40c9;color:#fff;border-radius:8px;text-decoration:none">{c}</a>'
+            for c in choices
+        )
+        html = f"""<!DOCTYPE html><html><head><title>Copilot Question</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:sans-serif;max-width:500px;margin:40px auto;padding:20px;background:#1a1a2e;color:#eee}}
+h2{{color:#6e40c9}}input{{width:100%;padding:10px;font-size:16px;border-radius:8px;border:1px solid #444;background:#2a2a3e;color:#eee;margin-bottom:10px}}
+button{{padding:10px 20px;background:#6e40c9;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer}}</style>
+</head><body>
+<h2>❓ Copilot Question</h2>
+<p>{question_text}</p>
+{choice_btns}
+<br><br>
+<form method="GET"><input name="answer" placeholder="Or type your answer…"><button type="submit">Send Answer</button></form>
+</body></html>"""
+        return web.Response(text=html, content_type="text/html")
+
+    pending_item = _pending_questions.pop(token, None)
+    if not pending_item:
+        return web.Response(
+            text="<html><body style='font-family:sans-serif;padding:20px;background:#1a1a2e;color:#eee'><h2>Already answered or expired.</h2></body></html>",
+            content_type="text/html",
+        )
+    sid = pending_item["session_id"]
+    proc = _active_processes.get(sid)
+    if proc is None or proc.returncode is not None:
+        return web.Response(
+            text="<html><body style='font-family:sans-serif;padding:20px;background:#1a1a2e;color:#eee'><h2>Session no longer active.</h2></body></html>",
+            content_type="text/html",
+        )
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write((answer + "\n").encode())
+        await proc.stdin.drain()
+        return web.Response(
+            text=f"<html><body style='font-family:sans-serif;padding:20px;background:#1a1a2e;color:#eee'><h2>✓ Answer sent: {answer}</h2><p>You can close this page.</p></body></html>",
+            content_type="text/html",
+        )
+    except Exception as e:
+        return web.Response(text=f"<html><body>Error: {e}</body></html>", content_type="text/html")
+
+
+async def handle_model_stats(_request: web.Request) -> web.Response:
+    """GET /api/model-stats — return per-model usage stats."""
+    return web.json_response(_model_stats)
+
+
+def _extract_snippet(text: str, query: str, context: int = 100) -> str:
+    idx = text.lower().find(query.lower())
+    if idx == -1:
+        return text[:context * 2]
+    start = max(0, idx - context)
+    end = min(len(text), idx + len(query) + context)
+    return ("…" if start > 0 else "") + text[start:end] + ("…" if end < len(text) else "")
+
+
+async def handle_search(request: web.Request) -> web.Response:
+    """GET /api/search?q=... — search across all sessions."""
+    q = request.rel_url.query.get("q", "").strip().lower()
+    if len(q) < 2:
+        return web.json_response([])
+    results = []
+    for sid, msgs in _chat_histories.items():
+        cfg = _session_configs.get(sid, {})
+        label = cfg.get("label", "Chat")
+        for i, msg in enumerate(msgs):
+            if q in msg["content"].lower():
+                results.append({
+                    "session_id": sid,
+                    "label": label,
+                    "message_index": i,
+                    "role": msg["role"],
+                    "snippet": _extract_snippet(msg["content"], q),
+                })
+                if len(results) >= 50:
+                    return web.json_response(results)
+    return web.json_response(results)
+
+
+async def handle_pin_session(request: web.Request) -> web.Response:
+    """POST /api/sessions/:id/pin — toggle pin."""
+    sid = request.match_info.get("session_id", "")
+    if sid not in _chat_histories:
+        raise web.HTTPNotFound(text="Session not found")
+    cfg = _session_configs.setdefault(sid, {**DEFAULT_SESSION_CONFIG})
+    cfg["pinned"] = not cfg.get("pinned", False)
+    return web.json_response({"ok": True, "pinned": cfg["pinned"]})
+
+
+async def handle_ssh_test(request: web.Request) -> web.Response:
+    """POST /api/ssh/test — test SSH connection."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid JSON")
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 22))
+    user = body.get("user", "").strip()
+    key_path = body.get("key_path", "~/.ssh/id_rsa").strip()
+    if not host or not user:
+        raise web.HTTPBadRequest(text="host and user required")
+    key_path_expanded = str(Path(key_path).expanduser())
+    cmd = [
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10", "-p", str(port),
+        "-i", key_path_expanded, f"{user}@{host}", "echo connected && uname -n",
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode == 0:
+            return web.json_response({"ok": True, "output": stdout.decode().strip()})
+        else:
+            return web.json_response({"ok": False, "error": stderr.decode().strip() or stdout.decode().strip()})
+    except asyncio.TimeoutError:
+        return web.json_response({"ok": False, "error": "Connection timed out"})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)})
+
+
+async def handle_ssh_install(request: web.Request) -> web.StreamResponse:
+    """POST /api/ssh/install — install gh + copilot on remote, stream output as SSE."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid JSON")
+    host = body.get("host", "").strip()
+    port = int(body.get("port", 22))
+    user = body.get("user", "").strip()
+    key_path = str(Path(body.get("key_path", "~/.ssh/id_rsa").strip()).expanduser())
+    if not host or not user:
+        raise web.HTTPBadRequest(text="host and user required")
+
+    install_script = r"""#!/bin/bash
+set -e
+echo "==> Checking for gh CLI..."
+if ! which gh &>/dev/null; then
+  echo "==> Installing gh CLI..."
+  if which apt-get &>/dev/null; then
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list
+    sudo apt-get update -qq && sudo apt-get install -y gh
+  elif which brew &>/dev/null; then
+    brew install gh
+  else
+    echo "ERROR: Cannot install gh — no supported package manager found"
+    exit 1
+  fi
+fi
+echo "==> gh version: $(gh --version | head -1)"
+echo "==> Installing/upgrading gh-copilot extension..."
+gh extension install github/gh-copilot 2>/dev/null || gh extension upgrade copilot 2>/dev/null || true
+COPILOT_PATH=$(find ~/.local/share/gh/copilot/ -name 'copilot' -type f 2>/dev/null | head -1)
+echo "==> Copilot path: ${COPILOT_PATH:-not found}"
+echo "==> Copilot version: $(${COPILOT_PATH} --version 2>/dev/null || echo unknown)"
+echo "DONE:${COPILOT_PATH}"
+"""
+
+    resp = web.StreamResponse(headers={
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+    await resp.prepare(request)
+
+    cmd = [
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10", "-p", str(port),
+        "-i", key_path, f"{user}@{host}", "bash", "-s",
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write(install_script.encode())
+        proc.stdin.close()
+        copilot_path = ""
+        async for line in proc.stdout:
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if text.startswith("DONE:"):
+                copilot_path = text[5:]
+            await resp.write(f"data: {json.dumps({'type': 'line', 'text': text})}\n\n".encode())
+        await proc.wait()
+        await resp.write(f"data: {json.dumps({'type': 'done', 'ok': proc.returncode == 0, 'copilot_path': copilot_path})}\n\n".encode())
+    except Exception as e:
+        await resp.write(f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n".encode())
+    await resp.write_eof()
+    return resp
+
+
+async def handle_ssh_profiles_list(_request: web.Request) -> web.Response:
+    """GET /api/ssh/profiles — list saved SSH profiles."""
+    return web.json_response(list(_ssh_profiles.values()))
+
+
+async def handle_ssh_profiles_save(request: web.Request) -> web.Response:
+    """POST /api/ssh/profiles — save an SSH profile."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid JSON")
+    profile_id = body.get("id") or str(uuid.uuid4())[:8]
+    _ssh_profiles[profile_id] = {
+        "id": profile_id,
+        "name": body.get("name", body.get("host", "Remote")),
+        "host": body.get("host", ""),
+        "port": int(body.get("port", 22)),
+        "user": body.get("user", ""),
+        "key_path": body.get("key_path", "~/.ssh/id_rsa"),
+        "copilot_path": body.get("copilot_path", ""),
+    }
+    _save_ssh_profiles()
+    return web.json_response({"ok": True, "profile": _ssh_profiles[profile_id]})
+
+
+async def handle_ssh_profile_delete(request: web.Request) -> web.Response:
+    """DELETE /api/ssh/profiles/{id} — delete an SSH profile."""
+    pid = request.match_info.get("id", "")
+    _ssh_profiles.pop(pid, None)
+    _save_ssh_profiles()
+    return web.json_response({"ok": True})
+
+
 async def handle_browse(request: web.Request) -> web.Response:
     """List directories at a given path for the directory picker."""
     path = request.rel_url.query.get("path", str(WORKSPACE))
@@ -876,6 +1267,23 @@ def build_app() -> web.Application:
     app.router.add_post("/api/sessions/{session_id}/answer", handle_answer)
     app.router.add_get("/api/models", handle_models)
     app.router.add_get("/api/browse", handle_browse)
+    # Home Assistant
+    app.router.add_get("/api/ha/config", handle_ha_config)
+    app.router.add_post("/api/ha/config", handle_ha_config)
+    app.router.add_post("/api/ha/test", handle_ha_test)
+    app.router.add_get("/api/ha/answer/{token}", handle_ha_answer)
+    # Model stats
+    app.router.add_get("/api/model-stats", handle_model_stats)
+    # Search
+    app.router.add_get("/api/search", handle_search)
+    # Pin
+    app.router.add_post("/api/sessions/{session_id}/pin", handle_pin_session)
+    # SSH
+    app.router.add_post("/api/ssh/test", handle_ssh_test)
+    app.router.add_post("/api/ssh/install", handle_ssh_install)
+    app.router.add_get("/api/ssh/profiles", handle_ssh_profiles_list)
+    app.router.add_post("/api/ssh/profiles", handle_ssh_profiles_save)
+    app.router.add_delete("/api/ssh/profiles/{id}", handle_ssh_profile_delete)
     app.router.add_get("/healthz", handle_healthz)
     app.router.add_get("/", handle_index)
     app.router.add_get("/login", handle_login_page)

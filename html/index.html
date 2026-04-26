@@ -729,6 +729,114 @@
       .tab-bar button { padding:8px 12px; font-size:12px; }
       .modal { width:94vw !important; max-height:88vh; overflow-y:auto; }
     }
+
+/* Sidebar search */
+#sidebar-search { padding:6px 12px; display:none; }
+#sidebar-search.visible { display:block; }
+#sidebar-search input {
+  width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:6px;
+  background:var(--surface2); color:var(--text); font-size:13px; outline:none;
+}
+#sidebar-search input:focus { border-color:var(--accent); }
+
+/* Sidebar action bar */
+.sidebar-actions { display:flex; gap:4px; padding:6px 12px 0; }
+.sidebar-action-btn {
+  flex:1; padding:5px 4px; border:1px solid var(--border); border-radius:6px;
+  background:var(--surface2); color:var(--text2); font-size:12px; cursor:pointer;
+  text-align:center; transition:background .15s, color .15s;
+}
+.sidebar-action-btn:hover { background:var(--surface3); color:var(--text); }
+
+/* Group headers in session list */
+.group-header {
+  display:flex; align-items:center; gap:6px; padding:8px 14px 4px;
+  font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase;
+  letter-spacing:.06em; cursor:pointer; user-select:none;
+}
+.group-header:hover { color:var(--text2); }
+.group-header .group-chevron { transition:transform .15s; font-size:10px; }
+.group-header.collapsed .group-chevron { transform:rotate(-90deg); }
+.group-section.collapsed .session-item { display:none; }
+
+/* Pinned indicator */
+.si-pin { font-size:10px; opacity:.6; margin-left:2px; }
+.session-item.pinned .si-label::after { content:''; }
+
+/* Context menu */
+.ctx-menu {
+  position:fixed; z-index:1000; background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,.3); min-width:160px;
+  overflow:hidden; animation:fadeIn .1s ease;
+}
+.ctx-menu-item {
+  padding:8px 14px; font-size:13px; cursor:pointer; color:var(--text);
+  display:flex; align-items:center; gap:8px; transition:background .1s;
+}
+.ctx-menu-item:hover { background:var(--surface2); }
+.ctx-menu-item.danger { color:var(--red); }
+
+/* Stats modal bars */
+.stat-model-row { margin-bottom:16px; }
+.stat-model-name { font-size:13px; font-weight:600; color:var(--text); margin-bottom:4px; }
+.stat-bar-row { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.stat-bar-label { font-size:11px; color:var(--text2); width:100px; flex-shrink:0; text-align:right; }
+.stat-bar-track { flex:1; height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; }
+.stat-bar-fill { height:100%; background:var(--accent); border-radius:4px; transition:width .3s ease; min-width:2px; }
+.stat-bar-fill.premium { background:var(--orange); }
+.stat-bar-count { font-size:11px; color:var(--text3); width:40px; }
+
+/* SSH modal */
+.ssh-profile-card {
+  border:1px solid var(--border); border-radius:8px; padding:12px 14px;
+  margin-bottom:10px; background:var(--surface2);
+}
+.ssh-profile-card .profile-name { font-weight:600; font-size:14px; margin-bottom:4px; }
+.ssh-profile-card .profile-meta { font-size:12px; color:var(--text2); margin-bottom:8px; }
+.ssh-profile-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.ssh-output {
+  font-family:monospace; font-size:12px; background:var(--code-bg); border:1px solid var(--border);
+  border-radius:6px; padding:10px; max-height:200px; overflow-y:auto; white-space:pre-wrap;
+  margin-top:8px; display:none; color:var(--green);
+}
+.ssh-output.visible { display:block; }
+
+/* HA status dot */
+.ha-dot {
+  width:8px; height:8px; border-radius:50%; background:var(--text3);
+  display:inline-block; margin-right:4px; flex-shrink:0;
+}
+.ha-dot.connected { background:var(--green); }
+.ha-dot.error { background:var(--red); }
+
+/* Shortcuts modal table */
+.shortcuts-table { width:100%; border-collapse:collapse; }
+.shortcuts-table tr:not(:last-child) td { border-bottom:1px solid var(--border); }
+.shortcuts-table td { padding:8px 12px; font-size:13px; }
+.shortcuts-table td:first-child { 
+  font-family:monospace; font-size:12px; background:var(--surface2);
+  border-radius:4px; padding:4px 8px; white-space:nowrap; color:var(--accent2);
+}
+.shortcut-row td:first-child { width:140px; }
+
+/* Session templates */
+.template-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:8px; margin-top:8px; }
+.template-btn {
+  padding:10px 8px; border:1px solid var(--border); border-radius:8px;
+  background:var(--surface2); color:var(--text); font-size:12px; cursor:pointer;
+  text-align:center; transition:background .15s, border-color .15s;
+}
+.template-btn:hover { background:var(--surface3); border-color:var(--accent); }
+.template-btn .t-icon { font-size:20px; display:block; margin-bottom:4px; }
+.template-btn .t-name { font-weight:600; }
+.template-btn .t-desc { color:var(--text2); font-size:10px; margin-top:2px; }
+
+/* HA answer copy btn */
+.ha-url-btn {
+  margin-top:6px; padding:4px 10px; font-size:11px; border:1px solid var(--border);
+  border-radius:4px; background:var(--surface2); color:var(--text2); cursor:pointer;
+}
+.ha-url-btn:hover { background:var(--surface3); }
   </style>
 </head>
 <body>
@@ -746,6 +854,19 @@
     <div class="brand">GitHub Copilot <small>CLI Web UI</small></div>
   </div>
 
+  <!-- Sidebar action buttons -->
+  <div class="sidebar-actions">
+    <button class="sidebar-action-btn" title="Search sessions" onclick="toggleSearch()">🔍 Search</button>
+    <button class="sidebar-action-btn" title="Model statistics" onclick="openStatsModal()">📊 Stats</button>
+    <button class="sidebar-action-btn" title="SSH profiles" onclick="openSSHModal()">🖥 SSH</button>
+    <button class="sidebar-action-btn" title="Home Assistant &amp; integrations" onclick="openIntegrationsModal()">🔗 HA</button>
+  </div>
+  <!-- Sidebar search bar -->
+  <div id="sidebar-search">
+    <input type="text" id="sidebar-search-input" placeholder="Search sessions…" 
+           oninput="liveSearch(this.value)" onkeydown="if(event.key==='Escape')toggleSearch()">
+  </div>
+
   <button id="new-chat-btn" onclick="openNewChatModal()">
     <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 1.5a.5.5 0 0 1 .5.5v5.5H14a.5.5 0 0 1 0 1H8.5V14a.5.5 0 0 1-1 0V8.5H2a.5.5 0 0 1 0-1h5.5V2a.5.5 0 0 1 .5-.5z"/></svg>
     New chat
@@ -755,6 +876,7 @@
 
   <div id="sidebar-footer">
     <div class="footer-row">
+      <span id="ha-status-dot" class="ha-dot" title="Home Assistant: not configured"></span>
       <button class="footer-btn" id="notif-btn" onclick="enableNotifications()" title="Enable desktop notifications">🔔 Notifs</button>
       <button class="footer-btn" onclick="toggleTheme()" id="theme-btn" title="Toggle light/dark theme">🌙 Theme</button>
       <button class="footer-btn" onclick="logout()">
@@ -859,6 +981,31 @@
           <option value="high">High</option>
           <option value="xhigh">Extra High — most thorough</option>
         </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label"><span>Quick Start Templates</span></label>
+        <div class="template-grid" id="template-grid">
+          <button class="template-btn" onclick="applyTemplate('code-review')">
+            <span class="t-icon">🔍</span><span class="t-name">Code Review</span>
+            <span class="t-desc">Review changes for issues</span>
+          </button>
+          <button class="template-btn" onclick="applyTemplate('bug-fix')">
+            <span class="t-icon">🐛</span><span class="t-name">Bug Fix</span>
+            <span class="t-desc">Diagnose and fix bugs</span>
+          </button>
+          <button class="template-btn" onclick="applyTemplate('docs-writer')">
+            <span class="t-icon">📝</span><span class="t-name">Docs Writer</span>
+            <span class="t-desc">Generate documentation</span>
+          </button>
+          <button class="template-btn" onclick="applyTemplate('research')">
+            <span class="t-icon">🔬</span><span class="t-name">Research</span>
+            <span class="t-desc">Explore and explain</span>
+          </button>
+          <button class="template-btn" onclick="applyTemplate('git-workflow')">
+            <span class="t-icon">🌿</span><span class="t-name">Git Workflow</span>
+            <span class="t-desc">Commits, branches, PRs</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1132,6 +1279,12 @@ const SLASH_CMDS = [
   { cmd:'/share',      icon:'🔗', desc:'Share session: /share (markdown) or /share gist' },
   { cmd:'/ask',        icon:'💬', desc:'Ask a side question without adding to history' },
   { cmd:'/changelog',  icon:'📰', desc:'Summarize recent Copilot CLI changelog' },
+  { cmd:'stats',        desc:'View model usage statistics',      action:() => { hideSlashPicker(); openStatsModal(); } },
+  { cmd:'ssh',          desc:'Manage SSH profiles',              action:() => { hideSlashPicker(); openSSHModal(); } },
+  { cmd:'integrations', desc:'Home Assistant & notifications',   action:() => { hideSlashPicker(); openIntegrationsModal(); } },
+  { cmd:'shortcuts',    desc:'View keyboard shortcuts',          action:() => { hideSlashPicker(); openShortcutsModal(); } },
+  { cmd:'pin',          desc:'Pin or unpin this session',        action:() => { hideSlashPicker(); if(currentSid) pinSession(currentSid); } },
+  { cmd:'group',        desc:'Set session group',                action:() => { hideSlashPicker(); if(currentSid) promptSetGroup(currentSid); } },
 ];
 
 function buildSlashList(filter='') {
@@ -1144,7 +1297,7 @@ function buildSlashList(filter='') {
     const el = document.createElement('div');
     el.className = 'slash-item' + (i === 0 ? ' selected' : '');
     el.innerHTML = `<span class="slash-icon">${c.icon}</span><span class="slash-cmd">${c.cmd}</span><span class="slash-desc">${c.desc}</span>`;
-    el.onclick = () => applySlashCmd(c.cmd);
+    el.onclick = () => c.action ? c.action() : applySlashCmd(c.cmd);
     list.appendChild(el);
   });
   return cmds;
@@ -1321,29 +1474,103 @@ function addPill(container, text, color, bg) {
 function renderSidebar() {
   const list = document.getElementById('sessions-list');
   list.innerHTML = '';
-  Object.keys(sessions).reverse().forEach(id => {
-    const s = sessions[id];
-    const cfg = s.config || {};
-    const mode = cfg.mode || 'autopilot';
-    const div = document.createElement('div');
-    div.className = 'session-item' + (id === currentSid ? ' active' : '');
-    div.innerHTML = `
-      <div class="si-body" style="min-width:0">
-        <div class="si-label">${esc(s.label || 'Chat')}</div>
-        <div class="si-meta">
-          <span class="mode-pill ${mode}">${{autopilot:'🤖',plan:'📋',interactive:'💬'}[mode]||''} ${mode}</span>
-          ${s.messages?.length ? `<span>${s.messages.length} msg${s.messages.length!==1?'s':''}</span>` : ''}
-        </div>
-      </div>
-      <div class="si-actions">
-        <button class="si-btn" title="Rename">✏</button>
-        <button class="si-btn danger" title="Delete">✕</button>
-      </div>`;
-    div.querySelector('.si-btn:first-child').onclick = e => { e.stopPropagation(); showRenamePopup(id, div); };
-    div.querySelector('.si-btn.danger').onclick = e => { e.stopPropagation(); deleteSession(id); };
-    div.onclick = () => switchSession(id);
-    list.appendChild(div);
+
+  let ids = Object.keys(sessions).reverse();
+
+  // Filter mode
+  if (sidebarSearchQuery) {
+    ids = ids.filter(id => (sessions[id]?.label || '').toLowerCase().includes(sidebarSearchQuery));
+    ids.forEach(id => list.appendChild(makeSessionItem(id)));
+    return;
+  }
+
+  // Sort: pinned first
+  const pinned = ids.filter(id => sessions[id]?.pinned || sessions[id]?.config?.pinned);
+  const rest   = ids.filter(id => !pinned.includes(id));
+
+  if (pinned.length) {
+    const hdr = document.createElement('div');
+    hdr.className = 'group-header';
+    hdr.dataset.group = '__pinned__';
+    hdr.innerHTML = `<span class="group-chevron">▾</span> 📌 Pinned`;
+    hdr.onclick = () => toggleGroup('__pinned__');
+    const sec = document.createElement('div');
+    sec.className = 'group-section';
+    sec.dataset.group = '__pinned__';
+    pinned.forEach(id => sec.appendChild(makeSessionItem(id)));
+    list.appendChild(hdr);
+    list.appendChild(sec);
+  }
+
+  // Group the rest
+  const groups = {};
+  rest.forEach(id => {
+    const g = sessions[id]?.group || sessions[id]?.config?.group || '';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(id);
   });
+
+  // Ungrouped first, then named groups alphabetically
+  const groupNames = Object.keys(groups).sort((a, b) => {
+    if (a === '') return -1;
+    if (b === '') return 1;
+    return a.localeCompare(b);
+  });
+
+  groupNames.forEach(g => {
+    if (g) {
+      const hdr = document.createElement('div');
+      hdr.className = 'group-header';
+      hdr.dataset.group = g;
+      hdr.innerHTML = `<span class="group-chevron">▾</span> 🗂 ${esc(g)}`;
+      hdr.onclick = () => toggleGroup(g);
+      const sec = document.createElement('div');
+      sec.className = 'group-section';
+      sec.dataset.group = g;
+      groups[g].forEach(id => sec.appendChild(makeSessionItem(id)));
+      list.appendChild(hdr);
+      list.appendChild(sec);
+    } else {
+      groups[g].forEach(id => list.appendChild(makeSessionItem(id)));
+    }
+  });
+}
+
+const _collapsedGroups = new Set();
+function toggleGroup(g) {
+  const hdr = document.querySelector(`.group-header[data-group="${CSS.escape(g)}"]`);
+  const sec = document.querySelector(`.group-section[data-group="${CSS.escape(g)}"]`);
+  if (!hdr || !sec) return;
+  const collapsed = _collapsedGroups.has(g);
+  if (collapsed) { _collapsedGroups.delete(g); hdr.classList.remove('collapsed'); sec.classList.remove('collapsed'); }
+  else           { _collapsedGroups.add(g);    hdr.classList.add('collapsed');    sec.classList.add('collapsed'); }
+}
+
+function makeSessionItem(id) {
+  const s = sessions[id];
+  const cfg = s?.config || {};
+  const mode = cfg.mode || 'autopilot';
+  const isPinned = s?.pinned || cfg.pinned || false;
+  const div = document.createElement('div');
+  div.className = 'session-item' + (id === currentSid ? ' active' : '') + (isPinned ? ' pinned' : '');
+  div.dataset.sid = id;
+  div.innerHTML = `
+    <div class="si-body" style="min-width:0">
+      <div class="si-label">${esc(s?.label || 'Chat')}${isPinned ? ' <span class="si-pin">📌</span>' : ''}</div>
+      <div class="si-meta">
+        <span class="mode-pill ${mode}">${{autopilot:'🤖',plan:'📋',interactive:'💬'}[mode]||''} ${mode}</span>
+        ${s?.messages?.length ? `<span>${s.messages.length} msg${s.messages.length!==1?'s':''}</span>` : ''}
+      </div>
+    </div>
+    <div class="si-actions">
+      <button class="si-btn" title="Rename">✏</button>
+      <button class="si-btn danger" title="Delete">✕</button>
+    </div>`;
+  div.querySelector('.si-btn:first-child').onclick = e => { e.stopPropagation(); showRenamePopup(id, div); };
+  div.querySelector('.si-btn.danger').onclick = e => { e.stopPropagation(); deleteSession(id); };
+  div.onclick = () => switchSession(id);
+  div.oncontextmenu = e => showContextMenu(e, id);
+  return div;
 }
 
 async function switchSession(id) {
@@ -1656,7 +1883,7 @@ async function sendMessage() {
           }
 
         } else if (evt.type === 'question') {
-          renderQuestion(evt.question, evt.choices || [], wrap);
+          renderQuestion(evt.question, evt.choices || [], wrap, evt.ha_token || null);
 
         } else if (evt.type === 'done') {
           bubble.classList.remove('typing-cursor');
@@ -2412,10 +2639,14 @@ promptInput.addEventListener('keydown', function(e) {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    ['new-chat-modal','model-modal'].forEach(id => closeModal(id));
+    ['new-chat-modal','model-modal','stats-modal','ssh-modal','integrations-modal','shortcuts-modal'].forEach(id => closeModal(id));
     hideSlashPicker();
+    hideContextMenu();
     document.querySelectorAll('.rename-popup').forEach(p=>p.remove());
   }
+  if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('prompt-input').focus(); }
+  if (e.ctrlKey && e.key === '/') { e.preventDefault(); openShortcutsModal(); }
+  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); openNewChatModal(); }
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -2433,11 +2664,13 @@ document.addEventListener('keydown', e => {
     if (res.status === 401) { window.location.href = '/login.html'; return; }
     const list = await res.json();
     if (list.length) {
-      list.forEach(({ session_id, label, mode, workdir, model }) => {
+      list.forEach(({ session_id, label, mode, workdir, model, group, pinned }) => {
         sessions[session_id] = {
           label: label || 'Chat',
           messages: [],
-          config: { mode, workdir, model },
+          config: { mode, workdir, model, group: group||'', pinned: pinned||false },
+          group: group || '',
+          pinned: pinned || false,
         };
       });
       await switchSession(list[list.length - 1].session_id);
@@ -2449,6 +2682,7 @@ document.addEventListener('keydown', e => {
     await createDefaultChat();
   }
   initNotifications();
+  checkHAStatus();
 })();
 
 // ── Notifications ──────────────────────────────────────────────────────────
@@ -2500,7 +2734,7 @@ function notifyUser(title, body) {
 }
 
 // ── Interactive question cards ─────────────────────────────────────────────
-function renderQuestion(question, choices, parentWrap) {
+function renderQuestion(question, choices, parentWrap, haToken=null) {
   const card = document.createElement('div');
   card.className = 'question-card';
   const choicesHtml = (choices && choices.length ? choices : []).map(c =>
@@ -2509,6 +2743,7 @@ function renderQuestion(question, choices, parentWrap) {
   card.innerHTML = `
     <div class="question-header">❓ Copilot is asking</div>
     <div class="question-body">${renderMd(question)}</div>
+    ${haToken ? `<button class="ha-url-btn" onclick="navigator.clipboard.writeText('${window.location.origin}/api/ha/answer/${haToken}').then(()=>toast('HA URL copied!'))">📋 Copy HA Answer URL</button>` : ''}
     ${choicesHtml ? `<div class="question-choices">${choicesHtml}</div>` : ''}
     <div class="question-input-row">
       <input type="text" class="question-input" placeholder="Type your answer…"
@@ -2562,6 +2797,433 @@ function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('show');
 }
+
+// ── Sidebar search ──────────────────────────────────────────────────────────
+let sidebarSearchQuery = '';
+
+function toggleSearch() {
+  const bar = document.getElementById('sidebar-search');
+  bar.classList.toggle('visible');
+  if (bar.classList.contains('visible')) {
+    document.getElementById('sidebar-search-input').focus();
+  } else {
+    document.getElementById('sidebar-search-input').value = '';
+    sidebarSearchQuery = '';
+    renderSidebar();
+  }
+}
+
+function liveSearch(q) {
+  sidebarSearchQuery = q.toLowerCase();
+  renderSidebar();
+}
+
+// ── Context menu ────────────────────────────────────────────────────────────
+let ctxTarget = null;
+
+function showContextMenu(event, id) {
+  event.preventDefault();
+  hideContextMenu();
+  ctxTarget = id;
+  const menu = document.getElementById('ctx-menu');
+  const s = sessions[id] || {};
+  const isPinned = s.pinned || s.config?.pinned || false;
+  menu.innerHTML = `
+    <div class="ctx-menu-item" onclick="showRenamePopup('${id}', document.querySelector('[data-sid=\\'${id}\\']'));hideContextMenu()">✏ Rename</div>
+    <div class="ctx-menu-item" onclick="pinSession('${id}');hideContextMenu()">${isPinned?'📌 Unpin':'📌 Pin'}</div>
+    <div class="ctx-menu-item" onclick="promptSetGroup('${id}');hideContextMenu()">🗂 Set Group</div>
+    <div class="ctx-menu-item danger" onclick="deleteSession('${id}');hideContextMenu()">✕ Delete</div>
+  `;
+  menu.style.left = event.clientX + 'px';
+  menu.style.top  = event.clientY + 'px';
+  menu.style.display = 'block';
+  setTimeout(() => document.addEventListener('click', hideContextMenu, {once:true}), 10);
+}
+
+function hideContextMenu() {
+  const menu = document.getElementById('ctx-menu');
+  if (menu) menu.style.display = 'none';
+  ctxTarget = null;
+}
+
+async function pinSession(id) {
+  const s = sessions[id] || {};
+  const wasPinned = s.pinned || s.config?.pinned || false;
+  const pinned = !wasPinned;
+  await fetch(`/api/sessions/${id}/pin`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pinned}),
+  });
+  if (!sessions[id]) sessions[id] = {};
+  sessions[id].pinned = pinned;
+  if (sessions[id].config) sessions[id].config.pinned = pinned;
+  renderSidebar();
+  toast(pinned ? '📌 Session pinned' : 'Session unpinned');
+}
+
+function promptSetGroup(id) {
+  const current = sessions[id]?.group || sessions[id]?.config?.group || '';
+  const group = prompt('Enter group name (leave empty to ungroup):', current);
+  if (group === null) return;
+  setSessionGroup(id, group.trim());
+}
+
+async function setSessionGroup(id, group) {
+  await fetch(`/api/sessions/${id}/config`, {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({group}),
+  });
+  if (!sessions[id]) sessions[id] = {};
+  sessions[id].group = group;
+  if (sessions[id].config) sessions[id].config.group = group;
+  renderSidebar();
+  toast(group ? `Grouped under "${group}"` : 'Removed from group');
+}
+
+// ── Stats modal ─────────────────────────────────────────────────────────────
+async function openStatsModal() {
+  document.getElementById('stats-modal').style.display = 'flex';
+  const content = document.getElementById('stats-content');
+  content.innerHTML = '<div style="text-align:center;color:var(--text3);padding:24px">Loading…</div>';
+  try {
+    const res = await fetch('/api/model-stats');
+    const data = await res.json();
+    const models = Object.keys(data);
+    if (!models.length) {
+      content.innerHTML = '<div style="text-align:center;color:var(--text3);padding:24px">No requests made yet.</div>';
+      return;
+    }
+    const maxReqs = Math.max(1, ...models.map(m => data[m].requests || 0));
+    content.innerHTML = models.map(model => {
+      const stat = data[model];
+      const reqs = stat.requests || 0;
+      const prem = stat.premium_requests || 0;
+      const reqPct = Math.round(reqs / maxReqs * 100);
+      const premPct = Math.round(prem / maxReqs * 100);
+      return `<div class="stat-model-row">
+        <div class="stat-model-name">${esc(model)}</div>
+        <div class="stat-bar-row">
+          <span class="stat-bar-label">Requests</span>
+          <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${reqPct}%"></div></div>
+          <span class="stat-bar-count">${reqs}</span>
+        </div>
+        <div class="stat-bar-row">
+          <span class="stat-bar-label">Premium</span>
+          <div class="stat-bar-track"><div class="stat-bar-fill premium" style="width:${premPct}%"></div></div>
+          <span class="stat-bar-count">${prem}</span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red);padding:12px">Error: ${esc(String(e))}</div>`;
+  }
+}
+
+// ── SSH modal ────────────────────────────────────────────────────────────────
+async function openSSHModal() {
+  document.getElementById('ssh-modal').style.display = 'flex';
+  await refreshSSHProfiles();
+}
+
+async function refreshSSHProfiles() {
+  const list = document.getElementById('ssh-profiles-list');
+  list.innerHTML = '<div style="color:var(--text3);font-size:13px">Loading…</div>';
+  try {
+    const res = await fetch('/api/ssh/profiles');
+    const profiles = await res.json();
+    if (!profiles.length) {
+      list.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">No saved profiles. Add one below.</div>';
+      return;
+    }
+    list.innerHTML = profiles.map(p => `
+      <div class="ssh-profile-card">
+        <div class="profile-name">${esc(p.name)}</div>
+        <div class="profile-meta">${esc(p.user)}@${esc(p.host)}${p.key_path ? ' · 🔑 '+esc(p.key_path) : ''}</div>
+        <div class="ssh-profile-actions">
+          <button class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="testSSH('${esc(p.name)}','${esc(p.host)}','${esc(p.user)}','${esc(p.key_path||'')}')">🔌 Test</button>
+          <button class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="installCopilot('${esc(p.name)}','${esc(p.host)}','${esc(p.user)}','${esc(p.key_path||'')}')">⬇ Install Copilot</button>
+          <button class="btn-secondary danger" style="font-size:12px;padding:5px 10px;color:var(--red)" onclick="deleteSSHProfile('${esc(p.name)}')">✕</button>
+        </div>
+        <div class="ssh-output" id="ssh-out-${esc(p.name)}"></div>
+      </div>`).join('');
+  } catch(e) {
+    list.innerHTML = `<div style="color:var(--red)">Error: ${esc(String(e))}</div>`;
+  }
+}
+
+async function saveSSHProfile() {
+  const name = document.getElementById('ssh-name').value.trim();
+  const host = document.getElementById('ssh-host').value.trim();
+  const user = document.getElementById('ssh-user').value.trim();
+  const key_path = document.getElementById('ssh-key').value.trim();
+  if (!name || !host || !user) { toast('Name, host, and user are required'); return; }
+  await fetch('/api/ssh/profiles', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, host, user, key_path}),
+  });
+  ['ssh-name','ssh-host','ssh-user','ssh-key'].forEach(id => { document.getElementById(id).value = ''; });
+  toast(`Profile "${name}" saved`);
+  await refreshSSHProfiles();
+}
+
+async function testSSH(name, host, user, keyPath) {
+  const outEl = document.getElementById(`ssh-out-${name}`);
+  if (outEl) { outEl.textContent = 'Testing connection…'; outEl.classList.add('visible'); }
+  try {
+    const res = await fetch('/api/ssh/test', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, host, user, key_path: keyPath}),
+    });
+    const data = await res.json();
+    if (outEl) {
+      outEl.textContent = data.ok ? `✅ Connected! ${data.output||''}` : `❌ Failed: ${data.error||'Unknown error'}`;
+    }
+  } catch(e) {
+    if (outEl) outEl.textContent = `❌ Error: ${e.message}`;
+  }
+}
+
+async function installCopilot(name, host, user, keyPath) {
+  const outEl = document.getElementById(`ssh-out-${name}`);
+  if (outEl) { outEl.textContent = ''; outEl.classList.add('visible'); }
+  try {
+    const res = await fetch('/api/ssh/install', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, host, user, key_path: keyPath}),
+    });
+    if (!res.body) { if(outEl) outEl.textContent = 'Stream not supported'; return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith('data:')) {
+          const txt = line.slice(5).trim();
+          if (!txt) continue;
+          try {
+            const ev = JSON.parse(txt);
+            if (outEl) outEl.textContent += (ev.line || ev.message || '') + '\n';
+          } catch { if (outEl) outEl.textContent += txt + '\n'; }
+          if (outEl) outEl.scrollTop = outEl.scrollHeight;
+        }
+      }
+    }
+  } catch(e) {
+    if (outEl) outEl.textContent += `\n❌ Error: ${e.message}`;
+  }
+}
+
+async function deleteSSHProfile(name) {
+  await fetch(`/api/ssh/profiles/${encodeURIComponent(name)}`, {method:'DELETE'});
+  toast(`Profile "${name}" deleted`);
+  await refreshSSHProfiles();
+}
+
+// ── Integrations / HA modal ──────────────────────────────────────────────────
+async function openIntegrationsModal() {
+  document.getElementById('integrations-modal').style.display = 'flex';
+  try {
+    const res = await fetch('/api/ha/config');
+    if (res.ok) {
+      const cfg = await res.json();
+      document.getElementById('ha-url').value = cfg.url || '';
+      document.getElementById('ha-token').value = cfg.token || '';
+      document.getElementById('ha-entity').value = cfg.notify_service || '';
+      document.getElementById('ha-server-base').value = cfg.server_base || window.location.origin;
+    }
+  } catch {}
+}
+
+async function saveHAConfig() {
+  const url = document.getElementById('ha-url').value.trim();
+  const token = document.getElementById('ha-token').value.trim();
+  const notify_service = document.getElementById('ha-entity').value.trim();
+  const server_base = document.getElementById('ha-server-base').value.trim();
+  const res = await fetch('/api/ha/config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({url, token, notify_service, server_base}),
+  });
+  if (res.ok) {
+    toast('✅ HA config saved');
+    updateHADot(url ? 'connected' : 'none');
+    closeModal('integrations-modal');
+  } else {
+    toast('❌ Failed to save HA config');
+  }
+}
+
+async function testHA() {
+  const btn = document.getElementById('ha-test-btn');
+  btn.textContent = '⏳ Testing…'; btn.disabled = true;
+  try {
+    const res = await fetch('/api/ha/test', {method:'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      toast('✅ HA connection successful!');
+      updateHADot('connected');
+    } else {
+      toast(`❌ HA test failed: ${data.error||'Unknown error'}`);
+      updateHADot('error');
+    }
+  } catch(e) {
+    toast(`❌ Error: ${e.message}`);
+    updateHADot('error');
+  } finally {
+    btn.textContent = '🧪 Test'; btn.disabled = false;
+  }
+}
+
+function updateHADot(state) {
+  const dot = document.getElementById('ha-status-dot');
+  if (!dot) return;
+  dot.className = 'ha-dot' + (state==='connected' ? ' connected' : state==='error' ? ' error' : '');
+  dot.title = 'Home Assistant: ' + (state==='connected'?'connected':state==='error'?'error':'not configured');
+}
+
+async function checkHAStatus() {
+  try {
+    const res = await fetch('/api/ha/config');
+    if (res.ok) {
+      const cfg = await res.json();
+      updateHADot(cfg.url ? 'connected' : 'none');
+    }
+  } catch {}
+}
+
+// ── Shortcuts modal ──────────────────────────────────────────────────────────
+function openShortcutsModal() {
+  document.getElementById('shortcuts-modal').style.display = 'flex';
+}
+
+// ── Session templates ────────────────────────────────────────────────────────
+const TEMPLATES = {
+  'code-review': { label:'Code Review', mode:'autopilot', hint:'Please review the code changes in this repository. Look for bugs, security issues, performance problems, and style issues.' },
+  'bug-fix':     { label:'Bug Fix', mode:'autopilot', hint:'Help me diagnose and fix a bug. I will describe the issue and you can investigate.' },
+  'docs-writer': { label:'Docs Writer', mode:'plan', hint:'Help me write and improve documentation for this codebase.' },
+  'research':    { label:'Research', mode:'interactive', hint:'Help me understand and explore this codebase or topic.' },
+  'git-workflow':{ label:'Git Workflow', mode:'autopilot', hint:'Help me with git operations: commits, branches, pull requests, and merge conflicts.' },
+};
+
+function applyTemplate(key) {
+  const t = TEMPLATES[key];
+  if (!t) return;
+  document.getElementById('cfg-label').value = t.label;
+  document.getElementById('cfg-mode').value = t.mode;
+  // highlight the selected template
+  document.querySelectorAll('.template-btn').forEach(btn => btn.style.borderColor = '');
+  event.currentTarget.style.borderColor = 'var(--accent)';
+  toast(`Template "${t.label}" applied`);
+}
 </script>
+<!-- Stats Modal -->
+<div id="stats-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('stats-modal')">
+  <div class="modal" style="width:540px">
+    <h2>📊 Model Usage Statistics</h2>
+    <p class="modal-subtitle">Request counts per model since server start</p>
+    <div id="stats-content" style="margin-top:16px">
+      <div style="text-align:center;color:var(--text3);padding:24px">Loading…</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('stats-modal')">Close</button>
+      <button class="btn-primary" onclick="openStatsModal()">↺ Refresh</button>
+    </div>
+  </div>
+</div>
+
+<!-- SSH Modal -->
+<div id="ssh-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('ssh-modal')">
+  <div class="modal" style="width:600px">
+    <h2>🖥 SSH Profiles</h2>
+    <p class="modal-subtitle">Connect to remote servers and install GitHub Copilot CLI</p>
+    <div id="ssh-profiles-list" style="margin-top:12px"></div>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;font-weight:600;color:var(--accent2);padding:8px 0">+ Add SSH Profile</summary>
+      <div style="padding:12px 0;display:grid;gap:10px">
+        <div class="form-group">
+          <label class="form-label">Profile Name</label>
+          <input type="text" class="form-input" id="ssh-name" placeholder="e.g. my-server">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Host</label>
+          <input type="text" class="form-input" id="ssh-host" placeholder="192.168.1.100 or server.example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-input" id="ssh-user" placeholder="ubuntu">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SSH Key Path (optional)</label>
+          <input type="text" class="form-input" id="ssh-key" placeholder="~/.ssh/id_rsa">
+        </div>
+        <button class="btn-primary" onclick="saveSSHProfile()">💾 Save Profile</button>
+      </div>
+    </details>
+    <div id="ssh-output" class="ssh-output"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('ssh-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Integrations Modal -->
+<div id="integrations-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('integrations-modal')">
+  <div class="modal" style="width:520px">
+    <h2>🔗 Integrations</h2>
+    <p class="modal-subtitle">Connect to Home Assistant for notifications and question answering</p>
+    <div style="margin-top:16px">
+      <p class="section-title">Home Assistant</p>
+      <div class="form-group">
+        <label class="form-label">HA Base URL</label>
+        <input type="text" class="form-input" id="ha-url" placeholder="http://homeassistant.local:8123">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Long-Lived Access Token</label>
+        <input type="password" class="form-input" id="ha-token" placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notify Entity / Service</label>
+        <input type="text" class="form-input" id="ha-entity" placeholder="persistent_notification">
+        <p class="form-hint">Used for both notifications and question prompts</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Server Base URL (for HA callbacks)</label>
+        <input type="text" class="form-input" id="ha-server-base" placeholder="http://192.168.4.188:8766">
+        <p class="form-hint">The URL HA will call back to answer questions</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('integrations-modal')">Cancel</button>
+      <button class="btn-secondary" onclick="testHA()" id="ha-test-btn">🧪 Test</button>
+      <button class="btn-primary" onclick="saveHAConfig()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shortcuts Modal -->
+<div id="shortcuts-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('shortcuts-modal')">
+  <div class="modal" style="width:480px">
+    <h2>⌨ Keyboard Shortcuts</h2>
+    <table class="shortcuts-table" style="margin-top:16px">
+      <tr class="shortcut-row"><td>Enter</td><td>Send message</td></tr>
+      <tr class="shortcut-row"><td>Shift+Enter</td><td>Insert new line</td></tr>
+      <tr class="shortcut-row"><td>/</td><td>Open slash command picker</td></tr>
+      <tr class="shortcut-row"><td>↑ ↓</td><td>Navigate slash picker</td></tr>
+      <tr class="shortcut-row"><td>Escape</td><td>Close modals / dismiss picker</td></tr>
+      <tr class="shortcut-row"><td>Ctrl+K</td><td>Focus input</td></tr>
+      <tr class="shortcut-row"><td>Ctrl+/</td><td>Open this shortcuts modal</td></tr>
+      <tr class="shortcut-row"><td>Ctrl+N</td><td>New chat</td></tr>
+      <tr class="shortcut-row"><td>Ctrl+Shift+S</td><td>Open session settings</td></tr>
+    </table>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="closeModal('shortcuts-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context menu -->
+<div id="ctx-menu" class="ctx-menu" style="display:none"></div>
 </body>
 </html>

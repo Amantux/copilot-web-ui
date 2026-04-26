@@ -1,0 +1,6 @@
+{
+  "url": "http://test.local:8123",
+  "token": "test",
+  "notify_service": "notify",
+  "server_base": "http://192.168.4.188:8766"
+}
