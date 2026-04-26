@@ -634,6 +634,101 @@
 
     :root { --mono: "SF Mono","Cascadia Code",Consolas,"Liberation Mono",monospace; }
     ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:3px}
+
+    /* ── Tools group ───────────────────────────────────────────────────────── */
+    .tools-group { margin:6px 0; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .tools-group-header {
+      display:flex; align-items:center; gap:8px; padding:8px 12px;
+      background:var(--surface2); cursor:pointer; user-select:none;
+      font-size:12px; font-weight:600; color:var(--text-dim);
+      transition:background .15s;
+    }
+    .tools-group-header:hover { background:var(--surface3); }
+    .tools-group-chevron { margin-left:auto; transition:transform .2s; display:inline-block; }
+    .tools-group.collapsed .tools-group-chevron { transform:rotate(-90deg); }
+    .tools-group.collapsed .tools-group-body { display:none; }
+    .tools-group .tool-row { border-radius:0; border-left:none; border-right:none; border-top:1px solid var(--border); }
+    .tools-group .tool-row:first-child { border-top:none; }
+    .tool-detail-label { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); margin-bottom:4px; }
+    .tool-output-detail {
+      display:none; font-family:var(--mono); font-size:11px; color:var(--green);
+      white-space:pre-wrap; word-break:break-all; padding:8px 12px 8px 36px;
+      background:rgba(0,0,0,.15); border-top:1px solid var(--border); max-height:200px; overflow-y:auto;
+    }
+    .tool-row.expanded .tool-output-detail:not(:empty) { display:block; }
+
+    /* ── Question card ─────────────────────────────────────────────────────── */
+    .question-card {
+      margin:10px 0; padding:14px 16px; border-radius:12px;
+      background:var(--surface2); border:1px solid var(--accent2);
+      box-shadow:0 0 0 1px color-mix(in srgb, var(--accent2) 20%, transparent);
+    }
+    .question-header { font-size:12px; font-weight:700; color:var(--accent2); margin-bottom:8px; letter-spacing:.04em; }
+    .question-body { font-size:14px; line-height:1.5; margin-bottom:12px; }
+    .question-choices { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .choice-btn {
+      padding:7px 14px; border-radius:8px; border:1px solid var(--accent);
+      background:transparent; color:var(--accent); font-size:13px; cursor:pointer;
+      transition:background .15s, color .15s;
+    }
+    .choice-btn:hover { background:var(--accent); color:#fff; }
+    .choice-btn:disabled { opacity:.5; cursor:not-allowed; }
+    .question-input-row { display:flex; gap:8px; }
+    .question-input {
+      flex:1; padding:8px 12px; border-radius:8px; border:1px solid var(--border);
+      background:var(--surface3); color:var(--text); font-size:13px;
+    }
+    .question-input:focus { outline:none; border-color:var(--accent); }
+    .question-input:disabled { opacity:.5; }
+    .question-send-btn {
+      padding:8px 14px; border-radius:8px; border:none;
+      background:var(--accent); color:#fff; font-size:13px; cursor:pointer;
+      transition:opacity .15s;
+    }
+    .question-send-btn:hover { opacity:.85; }
+    .question-send-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    /* ── Notification button ────────────────────────────────────────────────── */
+    #notif-btn { min-width:0; flex:1; }
+
+    /* ── Mobile sidebar overlay ─────────────────────────────────────────────── */
+    #sidebar-overlay {
+      display:none; position:fixed; inset:0; z-index:299;
+      background:rgba(0,0,0,.45); backdrop-filter:blur(2px);
+    }
+    #sidebar-overlay.show { display:block; }
+    #menu-toggle {
+      display:none; align-items:center; justify-content:center;
+      width:36px; height:36px; border:none; background:transparent;
+      color:var(--text); font-size:20px; cursor:pointer; border-radius:8px;
+      flex-shrink:0;
+    }
+    #menu-toggle:hover { background:var(--surface2); }
+
+    /* ── Mobile responsive ──────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      #sidebar {
+        position:fixed; top:0; left:-280px; bottom:0; z-index:300;
+        transition:left .25s ease; box-shadow:none;
+      }
+      #sidebar.open { left:0; box-shadow:4px 0 24px rgba(0,0,0,.4); }
+      #menu-toggle { display:flex; }
+      #main { margin-left:0; }
+      #chat-header { padding:8px 10px; gap:6px; flex-wrap:wrap; min-height:unset; }
+      #header-pills { flex-wrap:wrap; gap:4px; }
+      .header-actions { gap:4px; }
+      .hdr-btn { font-size:11px; padding:5px 8px; }
+      #model-badge { font-size:11px; padding:5px 10px; }
+      #messages { padding:10px; }
+      .msg-row { gap:8px; }
+      .bubble { padding:10px 13px; font-size:13px; }
+      #input-area { padding:8px 10px; }
+      #input-wrap textarea { font-size:14px; }
+      .perm-grid { grid-template-columns:1fr; }
+      .tab-bar { overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch; }
+      .tab-bar button { padding:8px 12px; font-size:12px; }
+      .modal { width:94vw !important; max-height:88vh; overflow-y:auto; }
+    }
   </style>
 </head>
 <body>
@@ -660,6 +755,7 @@
 
   <div id="sidebar-footer">
     <div class="footer-row">
+      <button class="footer-btn" id="notif-btn" onclick="enableNotifications()" title="Enable desktop notifications">🔔 Notifs</button>
       <button class="footer-btn" onclick="toggleTheme()" id="theme-btn" title="Toggle light/dark theme">🌙 Theme</button>
       <button class="footer-btn" onclick="logout()">
         <svg viewBox="0 0 16 16" fill="currentColor" width="11" height="11"><path d="M2 2.75C2 1.784 2.784 1 3.75 1h5.5a.75.75 0 0 1 0 1.5h-5.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h5.5a.75.75 0 0 1 0 1.5h-5.5A1.75 1.75 0 0 1 2 13.25Zm10.44 4.5-1.97-1.97a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.97-1.97H6.75a.75.75 0 0 1 0-1.5Z"/></svg>
@@ -669,9 +765,13 @@
   </div>
 </div>
 
+<!-- Sidebar overlay (mobile) -->
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
 <!-- Main -->
 <div id="main">
   <div id="chat-header">
+    <button id="menu-toggle" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
     <div class="status-dot" id="status-dot"></div>
     <div id="header-pills"></div>
     <button id="model-badge" onclick="openModelPicker()">claude-sonnet-4.6</button>
@@ -1247,6 +1347,7 @@ function renderSidebar() {
 }
 
 async function switchSession(id) {
+  closeSidebar();
   if (id === currentSid) return;
   currentSid = id;
   const [histRes, cfgRes] = await Promise.all([
@@ -1443,7 +1544,7 @@ async function sendMessage() {
   renderSidebar();
 
   const { wrap, bubble } = appendMsg('assistant', '', true);
-  let fullText = '', toolsDiv = null, toolRows = {};
+  let fullText = '', toolsDiv = null, toolRows = {}, toolsCountEl = null, toolCount = 0;
   isStreaming = true;
   document.getElementById('send-btn').disabled = true;
   document.getElementById('status-dot').style.background = 'var(--orange)';
@@ -1485,10 +1586,21 @@ async function sendMessage() {
 
         } else if (evt.type === 'tool_call') {
           if (!toolsDiv) {
-            toolsDiv = document.createElement('div');
-            toolsDiv.className = 'tools-section';
-            wrap.appendChild(toolsDiv);
+            const tg = document.createElement('div');
+            tg.className = 'tools-group';
+            tg.innerHTML = `
+              <div class="tools-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span>🔧</span><span class="tools-count">Tools (0)</span>
+                <span class="tools-group-chevron">▾</span>
+              </div>
+              <div class="tools-group-body"></div>`;
+            wrap.appendChild(tg);
+            toolsDiv = tg.querySelector('.tools-group-body');
+            toolsCountEl = tg.querySelector('.tools-count');
           }
+          toolCount++;
+          if (toolsCountEl) toolsCountEl.textContent = `Tools (${toolCount})`;
+          const callKey = evt.call_id || (evt.tool + '_' + toolCount);
           const row = document.createElement('div');
           row.className = 'tool-row running';
           const argsStr = evt.args && Object.keys(evt.args).length
@@ -1501,22 +1613,32 @@ async function sendMessage() {
               ${argsPreview ? `<div class="tool-args-preview">${esc(argsPreview)}</div>` : ''}
             </div>
             <div class="tool-status">⟳</div>
-            ${argsStr ? `<div class="tool-args-detail">${esc(argsStr)}</div>` : ''}`;
-          if (argsStr) {
-            row.addEventListener('click', () => row.classList.toggle('expanded'));
-            row.style.cursor = 'pointer';
-            row.title = 'Click to expand arguments';
-          }
+            ${argsStr ? `<div class="tool-args-detail"><div class="tool-detail-label">Inputs</div>${esc(argsStr)}</div>` : ''}
+            <div class="tool-output-detail"></div>`;
+          row.addEventListener('click', () => row.classList.toggle('expanded'));
+          row.style.cursor = 'pointer';
+          row.title = 'Click to expand inputs / outputs';
           toolsDiv.appendChild(row);
-          toolRows[evt.tool] = row;
+          toolRows[callKey] = row;
           scrollBot();
 
         } else if (evt.type === 'tool_done') {
-          const row = toolRows[evt.tool];
+          const row = toolRows[evt.call_id]
+            || toolRows[evt.tool]
+            || Object.values(toolRows).reverse().find(
+                r => r.querySelector('.tool-name')?.textContent === evt.tool
+                     && r.classList.contains('running')
+               );
           if (row) {
             row.classList.remove('running');
             row.classList.add(evt.success ? 'done-ok' : 'done-err');
             row.querySelector('.tool-status').textContent = evt.success ? '✓' : '✗';
+            if (evt.output) {
+              const outDiv = row.querySelector('.tool-output-detail');
+              if (outDiv) {
+                outDiv.innerHTML = `<div class="tool-detail-label">Output</div>${esc(String(evt.output))}`;
+              }
+            }
           }
 
         } else if (evt.type === 'usage') {
@@ -1533,9 +1655,14 @@ async function sendMessage() {
             wrap.appendChild(u);
           }
 
+        } else if (evt.type === 'question') {
+          renderQuestion(evt.question, evt.choices || [], wrap);
+
         } else if (evt.type === 'done') {
           bubble.classList.remove('typing-cursor');
           s.messages.push({ role:'assistant', content:fullText });
+          const sLabel = sessions[currentSid]?.label || 'Copilot';
+          notifyUser(sLabel, fullText.slice(0, 120) || 'Response complete');
 
         } else if (evt.type === 'error') {
           bubble.classList.remove('typing-cursor');
@@ -2321,7 +2448,120 @@ document.addEventListener('keydown', e => {
     console.error('Init error:', e);
     await createDefaultChat();
   }
+  initNotifications();
 })();
+
+// ── Notifications ──────────────────────────────────────────────────────────
+let notificationsEnabled = false;
+
+function initNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    notificationsEnabled = true;
+    const btn = document.getElementById('notif-btn');
+    if (btn) btn.textContent = '🔔 Notifs on';
+  }
+}
+
+function enableNotifications() {
+  if (!('Notification' in window)) { toast('Notifications not supported in this browser'); return; }
+  if (Notification.permission === 'granted') {
+    notificationsEnabled = !notificationsEnabled;
+    const btn = document.getElementById('notif-btn');
+    if (btn) btn.textContent = notificationsEnabled ? '🔔 Notifs on' : '🔕 Notifs off';
+    toast(notificationsEnabled ? 'Notifications enabled' : 'Notifications muted');
+    return;
+  }
+  Notification.requestPermission().then(perm => {
+    notificationsEnabled = perm === 'granted';
+    const btn = document.getElementById('notif-btn');
+    if (perm === 'granted') {
+      if (btn) btn.textContent = '🔔 Notifs on';
+      toast('🔔 Notifications enabled');
+    } else if (perm === 'denied') {
+      if (btn) btn.textContent = '🚫 Blocked';
+      toast('Notifications blocked — check browser settings');
+    } else {
+      toast('Notification permission dismissed');
+    }
+  });
+}
+
+function notifyUser(title, body) {
+  if (document.hasFocus()) return;
+  if (!notificationsEnabled) return;
+  try {
+    const n = new Notification('Copilot — ' + title, {
+      body: body || '',
+      tag: 'copilot-webui',
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (e) { /* ignore */ }
+}
+
+// ── Interactive question cards ─────────────────────────────────────────────
+function renderQuestion(question, choices, parentWrap) {
+  const card = document.createElement('div');
+  card.className = 'question-card';
+  const choicesHtml = (choices && choices.length ? choices : []).map(c =>
+    `<button class="choice-btn" onclick="answerQuestion(${JSON.stringify(c)}, this.closest('.question-card'))">${esc(c)}</button>`
+  ).join('');
+  card.innerHTML = `
+    <div class="question-header">❓ Copilot is asking</div>
+    <div class="question-body">${renderMd(question)}</div>
+    ${choicesHtml ? `<div class="question-choices">${choicesHtml}</div>` : ''}
+    <div class="question-input-row">
+      <input type="text" class="question-input" placeholder="Type your answer…"
+             onkeydown="if(event.key==='Enter')answerQuestion(this.value,this.closest('.question-card'))">
+      <button class="question-send-btn"
+              onclick="answerQuestion(this.previousElementSibling.value,this.closest('.question-card'))">Send ↵</button>
+    </div>`;
+  parentWrap.appendChild(card);
+  const inp = card.querySelector('.question-input');
+  if (inp) inp.focus();
+  scrollBot();
+  notifyUser(sessions[currentSid]?.label || 'Copilot', 'Waiting for your input');
+}
+
+async function answerQuestion(answer, card) {
+  if (!answer || !answer.trim()) return;
+  const els = card.querySelectorAll('input, button');
+  els.forEach(el => { el.disabled = true; });
+  const sendBtn = card.querySelector('.question-send-btn');
+  if (sendBtn) sendBtn.textContent = 'Sending…';
+
+  try {
+    const res = await fetch(`/api/sessions/${currentSid}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: answer.trim() }),
+    });
+    card.remove();
+    if (!res.ok) {
+      // No active process (stream already ended) — fall back to a new message
+      document.getElementById('prompt-input').value = answer.trim();
+      await sendMessage();
+    }
+  } catch (e) {
+    card.remove();
+    document.getElementById('prompt-input').value = answer.trim();
+    await sendMessage();
+  }
+}
+
+// ── Mobile sidebar ──────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  const isOpen = sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('show', !isOpen);
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('show');
+}
 </script>
 </body>
 </html>

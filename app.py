@@ -86,6 +86,10 @@ _copilot_sessions: dict[str, str] = {}
 # Per-session configuration
 _session_configs: dict[str, dict] = {}
 
+# Running copilot processes per session — kept alive so we can write to stdin
+# for interactive question/answer flows.
+_active_processes: dict[str, asyncio.subprocess.Process] = {}
+
 DEFAULT_SESSION_CONFIG: dict = {
     # Identity
     "label": "New chat",
@@ -265,13 +269,38 @@ def _parse_copilot_jsonl(line: bytes) -> dict | None:
     if t == "tool.execution_start":
         tool = data.get("toolName", data.get("name", "tool"))
         args = data.get("arguments", {})
-        return {"kind": "tool_call", "tool": str(tool), "args": args}
+        call_id = data.get("callId") or data.get("id") or str(uuid.uuid4())[:8]
+        return {"kind": "tool_call", "call_id": str(call_id), "tool": str(tool), "args": args}
 
     # Tool execution finished
     if t == "tool.execution_complete":
         tool = data.get("toolName", data.get("name", "tool"))
         success = data.get("success", True)
-        return {"kind": "tool_done", "tool": str(tool), "success": success}
+        call_id = data.get("callId") or data.get("id") or ""
+        output = data.get("output") or data.get("result") or ""
+        if isinstance(output, dict):
+            output = json.dumps(output, indent=2)
+        elif isinstance(output, list):
+            output = json.dumps(output)
+        return {
+            "kind": "tool_done",
+            "call_id": str(call_id),
+            "tool": str(tool),
+            "success": success,
+            "output": str(output)[:2000],
+        }
+
+    # Interactive question — copilot is asking the user something
+    if t in ("user.question", "confirmation_request", "user.question_request"):
+        prompt_text = (data.get("prompt") or data.get("question")
+                       or obj.get("question") or obj.get("prompt") or "")
+        choices = (data.get("choices") or data.get("options")
+                   or obj.get("choices") or obj.get("options") or [])
+        if isinstance(choices, list):
+            choices = [str(c) for c in choices]
+        if prompt_text:
+            return {"kind": "question", "question": str(prompt_text), "choices": choices}
+        return None
 
     # Final result — carries persistent session UUID and usage stats
     if t == "result":
@@ -296,6 +325,7 @@ async def _run_copilot_stream(
     prompt: str,
     copilot_session_id: str | None,
     config: dict,
+    session_id: str | None = None,
 ) -> AsyncIterator[dict]:
     """
     Yield structured event dicts from `copilot -p <prompt> --output-format json`.
@@ -449,8 +479,19 @@ async def _run_copilot_stream(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        stdin=asyncio.subprocess.PIPE,
         cwd=str(cwd),
     )
+
+    # Kill any stale process for this session before registering the new one
+    if session_id:
+        old = _active_processes.get(session_id)
+        if old is not None and old.returncode is None:
+            try:
+                old.kill()
+            except ProcessLookupError:
+                pass
+        _active_processes[session_id] = proc
 
     assert proc.stdout is not None
     try:
@@ -459,6 +500,8 @@ async def _run_copilot_stream(
             if event:
                 yield event
     finally:
+        if session_id:
+            _active_processes.pop(session_id, None)
         try:
             proc.kill()
         except ProcessLookupError:
@@ -531,7 +574,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
 
     full_response = []
     try:
-        async for event in _run_copilot_stream(prompt, copilot_session, config):
+        async for event in _run_copilot_stream(prompt, copilot_session, config, session_id=browser_sid):
             kind = event["kind"]
 
             if kind == "chunk":
@@ -540,11 +583,30 @@ async def handle_chat(request: web.Request) -> web.StreamResponse:
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "tool_call":
-                payload = json.dumps({"type": "tool_call", "tool": event["tool"], "args": event.get("args", {})})
+                payload = json.dumps({
+                    "type": "tool_call",
+                    "call_id": event.get("call_id", ""),
+                    "tool": event["tool"],
+                    "args": event.get("args", {}),
+                })
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "tool_done":
-                payload = json.dumps({"type": "tool_done", "tool": event["tool"], "success": event["success"]})
+                payload = json.dumps({
+                    "type": "tool_done",
+                    "call_id": event.get("call_id", ""),
+                    "tool": event["tool"],
+                    "success": event["success"],
+                    "output": event.get("output", ""),
+                })
+                await resp.write(f"data: {payload}\n\n".encode())
+
+            elif kind == "question":
+                payload = json.dumps({
+                    "type": "question",
+                    "question": event["question"],
+                    "choices": event.get("choices", []),
+                })
                 await resp.write(f"data: {payload}\n\n".encode())
 
             elif kind == "result":
@@ -722,10 +784,39 @@ async def handle_models(_request: web.Request) -> web.Response:
 
 async def handle_delete_session(request: web.Request) -> web.Response:
     sid = request.match_info.get("session_id", "")
+    # Kill any running process for this session
+    old = _active_processes.pop(sid, None)
+    if old is not None and old.returncode is None:
+        try:
+            old.kill()
+        except ProcessLookupError:
+            pass
     _chat_histories.pop(sid, None)
     _copilot_sessions.pop(sid, None)
     _session_configs.pop(sid, None)
     return web.json_response({"ok": True})
+
+
+async def handle_answer(request: web.Request) -> web.Response:
+    """POST /api/sessions/:id/answer — write user answer to active copilot process stdin."""
+    sid = request.match_info.get("session_id", "")
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="Invalid JSON")
+    answer = (body.get("answer") or "").strip()
+    if not answer:
+        raise web.HTTPBadRequest(text="answer required")
+    proc = _active_processes.get(sid)
+    if proc is None or proc.returncode is not None:
+        return web.json_response({"ok": False, "error": "no active process"}, status=404)
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write((answer + "\n").encode())
+        await proc.stdin.drain()
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
 async def handle_browse(request: web.Request) -> web.Response:
@@ -782,6 +873,7 @@ def build_app() -> web.Application:
     app.router.add_delete("/api/sessions/{session_id}/last", handle_undo_session)
     app.router.add_get("/api/sessions/{session_id}/export", handle_export_session)
     app.router.add_delete("/api/sessions/{session_id}", handle_delete_session)
+    app.router.add_post("/api/sessions/{session_id}/answer", handle_answer)
     app.router.add_get("/api/models", handle_models)
     app.router.add_get("/api/browse", handle_browse)
     app.router.add_get("/healthz", handle_healthz)
